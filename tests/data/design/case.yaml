@@ -1,0 +1,44 @@
+# A case that exercises the whole seam, against the synthetic fixture.
+#
+# The variant is a missense in a gene whose product assembles into a complex and
+# whose null alleles are milder — the COL1A1 shape, which resolves to a dominant
+# negative. That mechanism is what makes this case worth having end to end:
+#
+#   · gene addition is contraindicated, so no molecule may be designed for it
+#     however well the sequence would work;
+#   · allele-specific silencing is indicated, and routes to a gapmer over the
+#     variant, because the variant is the only thing distinguishing the two
+#     transcripts;
+#   · base and prime editing are indicated, and route to a protospacer and a
+#     pegRNA against the same coordinate.
+#
+# The coordinates are the synthetic fixture's and the file says so: 17:301 is
+# where tests/data/design/target.fa has a hand-placed PAM at a known distance.
+
+variant:
+  gene: TARG
+  consequence: missense_variant
+  cds_position: 52
+  protein_change: p.Gly18Ser
+  zygosity: heterozygous
+
+genomic:
+  chromosome: "17"
+  position: 301
+  reference: G
+  alternate: A
+
+transcript:
+  accession: NM_000099.1
+  exon_count: 1
+  coding_length: 101
+
+gene:
+  forms_multimer: true
+  truncating_variants_are_milder: true
+  haploinsufficiency: no_evidence
+  loeuf: 0.3
+  distribution:
+    pathogenic_missense_total: 40
+    pathogenic_missense_in_hotspot: 6
+    pathogenic_truncating_total: 12

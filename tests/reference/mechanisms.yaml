@@ -1,0 +1,218 @@
+# Reference set: genes whose disease mechanism is settled in the literature.
+#
+# This file is how the module is validated. The claim it tests is not "the code
+# runs" but "the rules reproduce what the field already knows" — and where they
+# do not, the disagreement is written down rather than tuned away.
+#
+# A note on the transcript structures. Exon lengths here are simplified: the
+# exon *count* and the total coding length are real, but the lengths are made
+# uniform. That is acceptable because what these cases test is the rule layer,
+# and the only structural fact the rules read is where the variant sits relative
+# to the last junction — which the simplification preserves for every case
+# below. A test of real annotation would need real structures and belongs with
+# the ingest module, not here.
+
+cases:
+  # ------------------------------------------------------------------
+  # Loss of function: the transcript is destroyed and the gene needs both
+  # copies.
+  # ------------------------------------------------------------------
+
+  - name: SCN1A nonsense, Dravet syndrome
+    note: >
+      The textbook haploinsufficiency case. Truncating variants across the gene,
+      dosage curation at sufficient evidence, and a phenotype that tracks the
+      amount of channel rather than any new activity.
+    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 2000, hgvs_c: c.2000C>A}
+    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.15
+      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+    expect:
+      mechanism: loss_of_function
+      confidence: probable
+      gene_addition_coherent: true
+
+  - name: UBE3A nonsense, Angelman syndrome
+    note: >
+      Loss of function like any other — but the paternal copy is intact and
+      silenced, which is a therapeutic target no other loss-of-function gene
+      offers. The mechanism does not change; the feasibility does.
+    variant: {gene: UBE3A, consequence: stop_gained, cds_position: 1000}
+    transcript: {accession: NM_130838.4, exon_count: 12, coding_length: 2628}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.2
+      imprinting: maternally_expressed
+      silenced_allele_intact: true
+      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 12, pathogenic_truncating_total: 90}
+    expect:
+      mechanism: loss_of_function
+      confidence: probable
+      silenced_allele_available: true
+
+  - name: DMD frameshift, Duchenne muscular dystrophy
+    note: >
+      Loss of function whose feasibility is decided by arithmetic rather than by
+      biology: the coding sequence does not fit in a viral vector, which is why
+      micro-dystrophin exists, and the affected exon is not a multiple of three,
+      which is why skipping it alone would not restore the frame.
+    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 4000}
+    transcript: {accession: NM_004006.3, exon_count: 79, coding_length: 11060}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.3
+      distribution: {pathogenic_missense_total: 60, pathogenic_missense_in_hotspot: 10, pathogenic_truncating_total: 900}
+    expect:
+      mechanism: loss_of_function
+      fits_viral_payload: false
+      exon_skipping_preserves_frame: false
+
+  - name: COL1A1 nonsense, osteogenesis imperfecta type I
+    note: >
+      Half of the pair that makes this module necessary. The transcript is
+      degraded, half the normal collagen is made, and the phenotype is the mild
+      form. Compare with the next case, in the same gene.
+    variant: {gene: COL1A1, consequence: stop_gained, cds_position: 1000}
+    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.25
+      forms_multimer: true
+      truncating_variants_are_milder: true
+      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: loss_of_function
+      gene_addition_coherent: true
+
+  # ------------------------------------------------------------------
+  # Dominant negative: the product is made and interferes.
+  # ------------------------------------------------------------------
+
+  - name: COL1A1 glycine substitution, osteogenesis imperfecta type II-IV
+    note: >
+      The other half of the pair. Same gene, in-frame variant, and the phenotype
+      is *worse* than having no protein at all — because the mutant chain is
+      incorporated into the triple helix and ruins it. Supplying more normal
+      collagen does not remove the defective chains.
+    variant: {gene: COL1A1, consequence: missense_variant, cds_position: 2461, protein_change: p.Gly821Ser}
+    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.25
+      forms_multimer: true
+      truncating_variants_are_milder: true
+      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: dominant_negative
+      confidence: probable
+      gene_addition_coherent: false
+      allele_specific_silencing_indicated: true
+
+  - name: KRT14 missense, epidermolysis bullosa simplex
+    note: >
+      Keratin filaments assemble from pairs; a defective subunit disrupts the
+      network. Null carriers are mild or unaffected, which is the signature.
+    variant: {gene: KRT14, consequence: missense_variant, cds_position: 373, protein_change: p.Arg125Cys}
+    transcript: {accession: NM_000526.5, exon_count: 8, coding_length: 1425}
+    gene:
+      forms_multimer: true
+      truncating_variants_are_milder: true
+      loeuf: 0.9
+      distribution: {pathogenic_missense_total: 120, pathogenic_missense_in_hotspot: 90, pathogenic_truncating_total: 5}
+    expect:
+      mechanism: dominant_negative
+      allele_specific_silencing_indicated: true
+
+  # ------------------------------------------------------------------
+  # Gain of function: read from where pathogenic variation sits.
+  # ------------------------------------------------------------------
+
+  - name: PIK3CA hotspot missense
+    note: >
+      Pathogenic variation is almost entirely missense and almost entirely in
+      three positions. Truncating variants are not a disease mechanism here at
+      all, which is what separates this from a dosage gene.
+    variant: {gene: PIK3CA, consequence: missense_variant, cds_position: 3140, protein_change: p.His1047Arg}
+    transcript: {accession: NM_006218.4, exon_count: 21, coding_length: 3213}
+    gene:
+      haploinsufficiency: no_evidence
+      loeuf: 0.6
+      distribution: {pathogenic_missense_total: 200, pathogenic_missense_in_hotspot: 170, pathogenic_truncating_total: 0}
+    expect:
+      mechanism: gain_of_function
+      confidence: probable
+      gene_addition_coherent: false
+      allele_specific_silencing_indicated: true
+
+  # ------------------------------------------------------------------
+  # The cases where the honest answer is a hedge.
+  # ------------------------------------------------------------------
+
+  - name: SCN2A missense, both mechanisms present in one gene
+    note: >
+      Gain-of-function variants cluster in the channel's voltage sensors and
+      cause early epilepsy; truncating variants cause a later, different
+      phenotype. A resolver that reported a single confident mechanism for this
+      gene would be wrong about half the patients, so "possible" is the correct
+      answer and not a weakness.
+    variant: {gene: SCN2A, consequence: missense_variant, cds_position: 4000}
+    transcript: {accession: NM_001040142.2, exon_count: 27, coding_length: 6021}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.1
+      distribution: {pathogenic_missense_total: 150, pathogenic_missense_in_hotspot: 105, pathogenic_truncating_total: 80}
+    expect:
+      mechanism: gain_of_function
+      confidence: possible
+
+  - name: MECP2 nonsense in the final exon, Rett syndrome
+    note: >
+      The case that proves curation has to outrank arithmetic. Most of the MECP2
+      coding sequence sits in the last exon, so common truncating variants
+      escape decay and a protein is made — yet the curated mechanism is loss of
+      function. The call follows the curation and reports the escape as a
+      conflict, because a reviewer needs both facts.
+    variant: {gene: MECP2, consequence: stop_gained, cds_position: 763, protein_change: p.Arg255Ter}
+    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.12
+      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: loss_of_function
+      confidence: established
+      has_conflicts: true
+
+  - name: Predicted null in a gene where dosage sensitivity is refuted
+    note: >
+      Synthetic case, and the gene name says so. Refutation is a finding, not a
+      gap: the resolver must not read a truncating variant in such a gene as
+      haploinsufficiency, and must say it does not know.
+    variant: {gene: SYNTHETIC_HI_REFUTED, consequence: stop_gained, cds_position: 1000}
+    transcript: {accession: NM_999001.1, exon_count: 10, coding_length: 3000}
+    gene:
+      haploinsufficiency: dosage_sensitivity_unlikely
+      loeuf: 0.95
+      distribution: {pathogenic_missense_total: 20, pathogenic_missense_in_hotspot: 5, pathogenic_truncating_total: 0}
+    expect:
+      mechanism: undetermined
+      confidence: none
+
+  - name: Missense in a gene with too few reported variants to see a pattern
+    note: >
+      Synthetic. Four pathogenic missense variants is not a distribution, and a
+      clustering ratio computed from four reports is noise. The guard exists so
+      that a rare gene does not get a confident mechanism for free.
+    variant: {gene: SYNTHETIC_SPARSE, consequence: missense_variant, cds_position: 500}
+    transcript: {accession: NM_999002.1, exon_count: 10, coding_length: 2000}
+    gene:
+      haploinsufficiency: little_evidence
+      loeuf: 0.8
+      distribution: {pathogenic_missense_total: 4, pathogenic_missense_in_hotspot: 4, pathogenic_truncating_total: 0}
+    expect:
+      mechanism: undetermined
+      confidence: none

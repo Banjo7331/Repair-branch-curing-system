@@ -1,0 +1,44 @@
+# Facts with no public table: read out of the literature, cited per entry.
+#
+# Generated once from the values that were inline in the reference sets, which
+# is why the bridging test proves the wiring rather than the biology — every
+# number here was originally typed by hand. Replacing this file with a real
+# curation round is a separate piece of work and is named in the README.
+genes:
+  COL1A1:
+    forms_multimer:
+      citation: Type I collagen is a heterotrimer; a mutant pro-alpha1 chain is incorporated
+        into the helix
+      value: true
+    truncating_variants_are_milder:
+      citation: Marini et al. 2007, Hum Mutat — glycine substitutions in the triple
+        helix versus haploinsufficiency in OI type I
+      value: true
+  DMD:
+    curated_mechanism:
+      citation: ClinGen DMD GCEP
+      value: loss_of_function
+  KRT14:
+    forms_multimer:
+      citation: Keratin filaments assemble from K5/K14 heterodimers
+      value: true
+    truncating_variants_are_milder:
+      citation: Coulombe et al. 1991, Cell — dominant-negative keratin assembly in
+        epidermolysis bullosa simplex
+      value: true
+  MECP2:
+    curated_mechanism:
+      citation: ClinGen Rett/Angelman-like GCEP
+      value: loss_of_function
+  SCN1A:
+    curated_mechanism:
+      citation: ClinGen epilepsy GCEP
+      value: loss_of_function
+  SMN1:
+    curated_mechanism:
+      citation: ClinGen SMA GCEP
+      value: loss_of_function
+  UBE3A:
+    curated_mechanism:
+      citation: ClinGen Rett/Angelman-like GCEP
+      value: loss_of_function

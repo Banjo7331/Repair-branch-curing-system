@@ -1,0 +1,191 @@
+version: prime-v1
+
+description: >
+  What makes one pegRNA worse than another, as rules over a candidate rather
+  than as constants in code.
+
+  Prime editing is the modality that can make any of the twelve substitutions
+  and small insertions and deletions besides, which is why it is here at all:
+  base editing covers four transitions and refuses everything else. What it buys
+  in scope it gives back in design space. A single edit admits hundreds of
+  pegRNAs — every combination of protospacer, primer binding site length and
+  reverse transcription template length — and they differ in efficiency by more
+  than an order of magnitude.
+
+  Almost every number below is a fitted recommendation from a screen rather than
+  a fact about chemistry. The primer binding site "should melt around 30 °C"
+  because that is where one group's data peaked. The nick-to-edit distance
+  "should stay under 30 nucleotides" because efficiency fell off beyond it in
+  the loci they tested. Numbers like these are exactly what does not belong in
+  Python: they will be revised, and when they are, the pin on this file changes
+  and every design made under the old ones is still identifiable.
+
+  What this file cannot do is rank. Which of two acceptable pegRNAs edits better
+  is what PRIDICT and its successors predict from thousands of measured
+  outcomes, and no such model is attached to this package.
+
+thresholds:
+  #: Primer binding site length range to enumerate. Both ends are conventional:
+  #: below 8 nt the 3' flap does not prime reliably, above 17 the pegRNA starts
+  #: folding back on its own spacer.
+  pbs_min_nt: 8
+  pbs_max_nt: 17
+  #: The melting temperature the enumeration aims at, and how far either side
+  #: passes without comment.
+  pbs_target_tm_c: 30
+  pbs_tm_tolerance_c: 8
+  #: Reverse transcription template: how much homology must follow the edit for
+  #: the new 3' flap to anneal, and how long the template may get.
+  rtt_homology_min_nt: 5
+  rtt_max_nt: 40
+  #: How far the edit may sit from the nick before efficiency falls away.
+  nick_to_edit_max_nt: 30
+  nick_to_edit_comfortable_nt: 20
+  #: PE3: where the second nick goes, measured from the pegRNA nick.
+  pe3_nick_min_nt: 40
+  pe3_nick_max_nt: 90
+  #: PE3b is not held to that window, and the reason is mechanical rather than
+  #: empirical. A PE3b spacer has to overlap the edit — that is what makes it
+  #: match the edited allele and not the original — so its nick lands wherever
+  #: the edit is, usually much closer than 40 nt. Holding it to the PE3 range
+  #: would rule out the configuration that produces the fewest indels.
+  pe3b_search_nt: 60
+  #: A run of this many Ts terminates Pol III transcription.
+  polyt_run_nt: 4
+
+nucleases:
+  - id: SpCas9-H840A
+    pam: NGG
+    protospacer_length: 20
+    #: Position after which the PAM-strand nick falls, counted from the
+    #: PAM-distal end of the protospacer. Three bases 5' of the PAM.
+    nick_after_position: 17
+    citation: Anzalone et al. 2019, Nature — prime editing
+
+rules:
+  # ------------------------------------------------------------------
+  # Things that stop a pegRNA working at all.
+  # ------------------------------------------------------------------
+
+  - id: POLY_T_TERMINATES_TRANSCRIPTION
+    severity: blocking
+    when: {feature: pegrna.has_polyt_run, is: true}
+    because: >
+      A run of four or more thymidines is a Pol III termination signal, and a
+      pegRNA is transcribed by Pol III. The molecule will be truncated at the
+      run rather than made as designed — which produces a guide that looks
+      correct on paper and does not exist in the cell.
+    citation: Pol III terminates at a run of T; standard U6 expression constraint
+
+  - id: HOMOLOGY_ARM_TOO_SHORT
+    severity: blocking
+    when: {feature: pegrna.homology_arm_nt, lt: 5}
+    because: >
+      The reverse transcription template must continue past the edit far enough
+      for the newly synthesised 3' flap to anneal to the genome. Without that
+      homology the flap has nothing to invade with, and the edit is not
+      installed — the enumeration should not have produced this candidate, and
+      the rule exists so a widened threshold cannot silently produce it either.
+    citation: Anzalone et al. 2019, Nature
+
+  - id: THE_EDIT_IS_TOO_FAR_FROM_THE_NICK
+    severity: blocking
+    when: {feature: pegrna.nick_to_edit_nt, gt: 30}
+    because: >
+      Everything between the nick and the edit has to be re-synthesised
+      correctly before the edit is even reached. Beyond about thirty
+      nucleotides the reported efficiency falls to the point where another
+      protospacer is the answer rather than a longer template.
+    citation: Anzalone et al. 2019, Nature — efficiency versus nick-to-edit distance
+
+  # ------------------------------------------------------------------
+  # Things that make one worse than its neighbour.
+  # ------------------------------------------------------------------
+
+  - id: THE_EXTENSION_BEGINS_WITH_C
+    severity: caution
+    when: {feature: pegrna.extension_begins_with_c, is: true}
+    because: >
+      A cytosine as the first base of the 3' extension pairs with the last base
+      of the scaffold and disrupts its fold. Reported efficiencies for these are
+      consistently lower, and the fix is free: shift the template length by one
+      and take the neighbour.
+    citation: Anzalone et al. 2019, Nature — avoid C at position 1 of the 3' extension
+
+  - id: THE_PRIMER_BINDING_SITE_IS_COLD
+    severity: caution
+    when: {feature: pegrna.pbs_tm_c, lt: 22}
+    because: >
+      Too weak an anneal and the nicked 3' end does not prime reverse
+      transcription. GC-poor sequence needs a longer primer binding site to
+      reach the same melting temperature, and the enumeration offers longer ones
+      — this flag says to take one.
+    citation: >
+      Kim et al. 2020, Nat Biotechnol — primer binding site melting temperature
+      near 30 °C
+
+  - id: THE_PRIMER_BINDING_SITE_IS_HOT
+    severity: caution
+    when: {feature: pegrna.pbs_tm_c, gt: 38}
+    because: >
+      Too strong an anneal and the primer binding site pairs with the spacer
+      inside the pegRNA rather than with the genome, which sequesters the guide
+      before it reaches the target.
+    citation: Kim et al. 2020, Nat Biotechnol
+
+  - id: THE_PAM_SURVIVES_THE_EDIT
+    severity: caution
+    when: {feature: pegrna.pam_disrupted_by_edit, is: false}
+    because: >
+      With the PAM intact, the edited allele is still a substrate: the editor
+      re-nicks what it has just corrected, and the second pass can install an
+      indel instead. Where the reading frame allows it, a silent change inside
+      the PAM added to the template is the standard fix, and this package does
+      not design one — it only says that it is missing.
+    citation: >
+      Anzalone et al. 2019, Nature — PAM-disrupting edits reduce re-engagement;
+      silent PAM edits are the usual workaround
+
+  - id: THE_EDIT_IS_FAR_FROM_THE_NICK
+    severity: caution
+    when:
+      all:
+        - {feature: pegrna.nick_to_edit_nt, gt: 20}
+        - {feature: pegrna.nick_to_edit_nt, lte: 30}
+    because: >
+      Still inside the workable range, and further out than the candidates that
+      usually win. Worth taking only when nothing closer has a PAM.
+    citation: Anzalone et al. 2019, Nature
+
+  - id: NO_SECOND_NICK_IN_RANGE
+    severity: caution
+    when: {feature: pegrna.pe3_options, eq: 0}
+    because: >
+      No protospacer on the opposite strand puts a second nick in the window
+      where PE3 helps. PE2 alone works and is the safer configuration; it is
+      also several-fold less efficient at most sites, so this is a fact to plan
+      around rather than a defect.
+    citation: Anzalone et al. 2019, Nature — PE2 versus PE3
+
+  # ------------------------------------------------------------------
+  # Things worth knowing.
+  # ------------------------------------------------------------------
+
+  - id: A_PE3B_NICK_IS_AVAILABLE
+    severity: note
+    when: {feature: pegrna.pe3b_available, is: true}
+    because: >
+      A second nick whose own protospacer only matches *after* the edit is
+      installed. It cannot fire on the unedited allele, so the two nicks are
+      never open at once — which is the mechanism behind PE3's indels. Where
+      PE3b is available it is the configuration to use.
+    citation: Anzalone et al. 2019, Nature — PE3b
+
+  - id: A_LONG_TEMPLATE
+    severity: note
+    when: {feature: pegrna.rtt_length_nt, gt: 30}
+    because: >
+      Long reverse transcription templates are synthesised less completely and
+      make the pegRNA more prone to folding. Not a fault — sometimes the edit
+      needs one — but the shorter neighbours are worth trying first.
+    citation: Anzalone et al. 2019, Nature

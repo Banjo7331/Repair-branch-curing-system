@@ -1,0 +1,33 @@
+# Scheduling for repairbench.
+#
+# A reanalysis run is a process that starts, compares today with last month, and
+# exits. Cron owns the schedule; the process owns one comparison. The state
+# directory is what makes that work — without it every run would be a first run.
+#
+# The cadence follows the releases, not the clock. ClinGen recurates
+# irregularly, gnomAD ships every year or two, and an annotation release is
+# rarer still, so a nightly sweep is already generous. It is also nearly free:
+# a case whose world has not moved costs zero rule evaluations.
+#
+# The one thing that must not be scheduled loosely is the phenotype axis. A
+# neonate's HPO list changes on a ward round, which is why a phenotype update
+# should trigger a run for that case immediately rather than waiting for 03:00.
+
+SHELL=/bin/sh
+PATH=/usr/local/bin:/usr/bin:/bin
+STATE=/var/lib/repairbench
+CATALOGUE=/etc/repairbench/catalogue.yaml
+
+# Nightly sweep, at an hour when nobody is signing out.
+0 3 * * * repairbench for case in $(ls $STATE/cases/*.json | xargs -n1 basename | sed 's/\.json//'); do \
+              repairbench reanalyse "$case" --state $STATE --catalogue $CATALOGUE --json; \
+          done >> /var/log/repairbench/run.log 2>&1
+
+# Metrics are written to the state directory by each run; serve exposes them
+# between runs so a scrape never finds the endpoint down.
+@reboot   repairbench repairbench serve --addr :9090 >> /var/log/repairbench/serve.log 2>&1
+
+# The alert that matters is not an error rate. A scheduled job that stops
+# running is invisible unless something measures its absence:
+#
+#     time() - repairbench_last_run_timestamp_seconds > 172800

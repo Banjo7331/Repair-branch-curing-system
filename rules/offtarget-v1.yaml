@@ -1,0 +1,163 @@
+version: offtarget-v1
+
+description: >
+  Which off-target hits matter, and why. Written against the hits a search tool
+  returns, in the same predicate language as the mechanism and modality rules.
+
+  The claim these rules exist to make is that a hit list sorted by mismatch
+  count is sorted by the wrong thing. Mismatch count says how likely the nuclease
+  is to bind. It says nothing about what happens if it does, and what happens if
+  it does is the question a clinician is asking. Four mismatches into the coding
+  sequence of a tumour suppressor outranks two mismatches into an intergenic
+  desert, and no arithmetic over mismatch counts will ever put them in that
+  order.
+
+  Two things these rules deliberately do not do. They do not weight a mismatch by
+  its position — that is CFD, it needs a published table this package does not
+  carry, and a rule file inventing one would be inventing a measurement. And they
+  do not clear a guide: nothing here assigns "safe". The lowest tier means no
+  rule fired, which is a statement about this file rather than about the genome.
+
+rules:
+  # ------------------------------------------------------------------
+  # Coding sequence of a gene the patient cannot afford to lose.
+  # ------------------------------------------------------------------
+
+  - id: CODING_HIT_IN_AN_ESSENTIAL_GENE
+    tier: prohibitive
+    when:
+      all:
+        - {feature: hit.in_coding_sequence, is: true}
+        - {feature: hit.gene_is_essential, is: true}
+    because: >
+      A nuclease cut in the coding sequence of a common-essential gene is the
+      one off-target class with no acceptable frequency. Repair by end joining
+      produces indels, an indel in coding sequence produces a frameshift in some
+      fraction of cells, and the cells in which it does are lost. This is not a
+      risk to be traded against efficacy; it is a reason to pick another guide.
+    citation: DepMap common essentials
+
+  - id: CODING_HIT_IN_A_TUMOUR_SUPPRESSOR
+    tier: prohibitive
+    when:
+      all:
+        - {feature: hit.in_coding_sequence, is: true}
+        - {feature: hit.gene_is_tumour_suppressor, is: true}
+    because: >
+      Tumour suppressors are disrupted by loss, and loss is precisely what an
+      unintended indel or premature stop produces. The direction matters: this
+      is the one gene class where the *typical* off-target outcome is also the
+      oncogenic one, and where the consequence appears years after the therapy.
+    citation: COSMIC Cancer Gene Census, tumour suppressor annotation
+
+  - id: CODING_HIT_IN_AN_ONCOGENE
+    tier: serious
+    when:
+      all:
+        - {feature: hit.in_coding_sequence, is: true}
+        - {feature: hit.gene_is_oncogene, is: true}
+    because: >
+      Ranked below the tumour suppressors on purpose. An oncogene is activated by
+      specific gain-of-function changes rather than by disruption, so a random
+      indel is more often inert here than it is there — but "more often inert" is
+      not "inert", and a base editor makes point changes rather than indels.
+    citation: COSMIC Cancer Gene Census, oncogene annotation
+
+  # ------------------------------------------------------------------
+  # Coding sequence generally.
+  # ------------------------------------------------------------------
+
+  - id: CODING_HIT_IN_ANY_GENE
+    tier: serious
+    when:
+      all:
+        - {feature: hit.in_coding_sequence, is: true}
+        - {feature: hit.mismatches, lte: 3}
+    because: >
+      A close hit in coding sequence, in a gene no list flags. The lists are not
+      a census of what matters — DepMap measures essentiality in cell lines, and
+      a gene dispensable in culture can be indispensable in a neuron — so a
+      coding hit is worth answering even when nothing else is known about the
+      gene.
+    citation: >
+      Absence from a gene list is absence of evidence about the gene, not
+      evidence that it is dispensable.
+
+  - id: A_DISTANT_CODING_HIT
+    tier: moderate
+    when:
+      all:
+        - {feature: hit.in_coding_sequence, is: true}
+        - {feature: hit.mismatches, gt: 3}
+    because: >
+      Far enough that binding is unlikely, but still in coding sequence. It
+      ranks above nothing rather than with it, because "low" is the tier for
+      hits no rule had anything to say about, and a coding hit is not one of
+      those. Mismatch count is a statement about how often; where it lands is a
+      statement about what happens when it does.
+    citation: >
+      The two questions are independent, and only the first is answered by the
+      search.
+
+  - id: A_HIT_WITH_NO_MISMATCHES
+    tier: prohibitive
+    when: {feature: hit.mismatches, eq: 0}
+    because: >
+      A perfect match somewhere other than the target means the guide is not
+      unique in this genome. Nothing about the surrounding sequence redeems
+      that: the nuclease has no way to prefer one of the two, and both will be
+      cut at similar rates.
+    citation: Guide uniqueness is a property of the genome, not of the design
+
+  # ------------------------------------------------------------------
+  # Where the tissue dimension earns its place.
+  # ------------------------------------------------------------------
+
+  - id: HIT_IN_A_GENE_SILENT_IN_THE_TARGET_TISSUE
+    tier: moderate
+    when:
+      all:
+        - {feature: hit.in_a_gene, is: true}
+        - {feature: hit.in_coding_sequence, is: false}
+        - {feature: hit.expression_measured, is: true}
+        - {feature: hit.tpm_in_target_tissue, lt: 1.0}
+    because: >
+      A non-coding hit in a gene that is not transcribed in the tissue this
+      therapy is aimed at. Downgraded rather than dismissed, and the difference
+      matters: an edit is permanent and a cell's expression programme is not.
+      A gene silent in the adult tissue may be needed during repair, during
+      stress, or in a cell type the bulk measurement averages away.
+    citation: GTEx median TPM in the target tissue
+
+  - id: A_CLOSE_NON_CODING_HIT_INSIDE_A_GENE
+    tier: moderate
+    when:
+      all:
+        - {feature: hit.in_a_gene, is: true}
+        - {feature: hit.in_coding_sequence, is: false}
+        - {feature: hit.mismatches, lte: 2}
+    because: >
+      Intronic and untranslated hits are usually tolerated, and the exceptions
+      are not rare enough to ignore: splice sites, branch points and regulatory
+      elements all live outside coding sequence, and none of them is annotated
+      here.
+    citation: >
+      This package does not read regulatory annotation, so "non-coding" is a
+      statement about the CDS records and nothing more.
+
+  # ------------------------------------------------------------------
+  # Bulges.
+  # ------------------------------------------------------------------
+
+  - id: A_BULGED_HIT_IN_CODING_SEQUENCE
+    tier: serious
+    when:
+      all:
+        - {feature: hit.has_bulge, is: true}
+        - {feature: hit.in_coding_sequence, is: true}
+    because: >
+      A bulge lets a guide bind a site its mismatch count alone would rule out,
+      which is why searches that allow bulges find sites the plain search misses.
+      Mismatch count is a poor summary of a bulged hit, so the location has to
+      carry the judgement.
+    citation: Lin et al. 2014, Nucleic Acids Res — bulges at CRISPR off-target sites

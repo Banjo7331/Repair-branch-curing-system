@@ -1,0 +1,6 @@
+# panel release epilepsy-3.2.
+#
+# No rule reads this axis yet. The file exists because a world must pin every
+# axis to be complete, and a placeholder that says so is better than leaving the
+# axis out: when a rule does start reading panel, it will find a release
+# already pinned rather than appearing in a world that never named it.

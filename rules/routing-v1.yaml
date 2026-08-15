@@ -1,0 +1,111 @@
+version: routing-v1
+
+description: >
+  Which designer a modality goes to, and which modalities this package will not
+  design at all.
+
+  This file is the seam between M6 and M7, and it is data for the same reason
+  everything else here is: the mapping is a set of claims about what a molecule
+  can do, not an implementation detail. That allele-specific silencing is an
+  RNase H job and exon skipping is a steric-blocker job is a clinical fact —
+  getting it backwards degrades one therapy and inverts the other. It belongs
+  somewhere a reviewer can read it.
+
+  The entries with no designer matter more than the ones with. A package that
+  quietly returns nothing for gene addition looks like a package that found no
+  candidates; one that says "the sequence to deliver is the gene, and what has
+  to be designed is a vector and a promoter, neither of which is sequence
+  design" has said something true. Every modality is listed, and every one
+  without a designer carries its reason.
+
+thresholds:
+  #: How much sequence either side of the variant an allele-discriminating
+  #: oligonucleotide is tiled over. It has to cover the variant itself — that is
+  #: the only thing distinguishing the two transcripts — so the window is
+  #: centred on it rather than on an exon.
+  variant_window_nt: 60
+  #: How far into the flanking introns to extend an exon-skipping target, so the
+  #: acceptor and donor sites are inside the tiled region rather than at its
+  #: edge.
+  splice_flank_nt: 30
+
+designers:
+  - modality: base_editing
+    designer: base_editor
+    because: >
+      A protospacer that puts the target base in a deaminase window, plus every
+      other editable base in that window.
+
+  - modality: prime_editing
+    designer: pegrna
+    because: >
+      A spacer, a primer binding site and a template that writes the edit. The
+      only designer here that handles insertions and deletions.
+
+  - modality: exon_skipping
+    designer: aso
+    chemistry: steric-PMO
+    target: affected_exon
+    because: >
+      Skipping needs the spliceosome redirected, not the transcript destroyed,
+      so the chemistry must be one that recruits no RNase H. A gapmer aimed at
+      the same site degrades the message the skip was meant to rescue.
+
+  - modality: splice_correction
+    designer: aso
+    chemistry: steric-2MOE
+    target: affected_exon
+    because: >
+      Same argument as skipping, and the worked example is nusinersen: a fully
+      2'-O-methoxyethyl oligonucleotide occupying a silencer so the exon is
+      included rather than skipped.
+
+  - modality: allele_specific_silencing
+    designer: aso
+    chemistry: gapmer-2MOE
+    target: variant_window
+    because: >
+      Here destroying the transcript is the point, so the chemistry is the one
+      that recruits RNase H. Note what this package cannot yet check: that the
+      oligonucleotide discriminates the mutant transcript from the normal one,
+      which is the entire difficulty of allele-specific silencing.
+
+  - modality: wild_type_upregulation
+    designer: none
+    because: >
+      The mechanism is real and the molecule is often an oligonucleotide — a
+      steric blocker over a non-productive splice event, so more transcript
+      reaches translation. What it needs is the location of that event: a
+      poison exon, a decoy splice site, an upstream open reading frame. None of
+      those is in a CDS record, so there is no target region to tile and the
+      honest answer is that the input is missing rather than the candidates.
+
+  - modality: gene_addition
+    designer: none
+    because: >
+      The sequence to deliver is the coding sequence, already known. What has
+      to be designed is a vector, a promoter and a dose — none of which is
+      sequence design, and all of which decide whether it works.
+
+  - modality: truncated_construct
+    designer: none
+    because: >
+      Deciding which domains a shortened protein can lose is protein
+      engineering against structure and function data. Micro-dystrophin took
+      years of it. Nothing in this package reasons about protein domains.
+
+  - modality: silenced_allele_reactivation
+    designer: none
+    because: >
+      The target is an epigenetic state rather than a sequence — a methylated
+      imprinting centre, an inactive X. The molecules are small compounds,
+      oligonucleotides against a regulatory RNA, or epigenome editors, and
+      choosing between them is not a sequence design problem.
+
+  - modality: read_through
+    designer: none
+    because: >
+      A small molecule persuading the ribosome past a premature stop. There is
+      no oligonucleotide and no guide to design; what matters is the identity
+      of the stop codon and its context, which this package reports but does
+      not act on.

@@ -1,0 +1,10 @@
+## Membership lists, trimmed to the genes tests/data/mini.gff3 declares.
+##
+## Neither DepMap's common essentials nor COSMIC's Cancer Gene Census is
+## redistributable, so this file is the shape rather than the content: the same
+## two columns the real exports are reduced to, with symbols this fixture's
+## annotation actually contains. The citation column is what a report prints.
+symbol	list	citation
+PLUSG	essential	DepMap common essential (fixture — invented)
+DEMOG	tumour_suppressor	COSMIC Cancer Gene Census, TSG (fixture — invented)
+MINUSG	oncogene	COSMIC Cancer Gene Census, oncogene (fixture — invented)

@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.11"}
+
+      - run: pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Types
+        run: mypy
+
+      - name: Tests
+        run: pytest -q
+
+      # The rules are the product, so both reference sets run as their own
+      # steps. A green test suite with a rule file that no longer reproduces the
+      # literature is exactly the failure this project exists to prevent.
+      - name: Mechanism reference set
+        run: python -m repairbench.cli reference
+
+      - name: Modality reference set
+        run: python -m repairbench.cli reference --modalities

@@ -1,0 +1,29 @@
+# Every release this deployment can still reproduce, oldest first.
+#
+# The point of keeping the old files is that a counterfactual has to load them.
+# A deployment that only keeps today's release cannot answer "would this have
+# changed without the January curation" — and the catalogue says so out loud
+# instead of quietly falling back.
+
+gene_curation:
+  - {version: "2026-01", path: clingen-2026-01.tsv}
+  - {version: "2026-04", path: clingen-2026-04.tsv}
+
+population_frequency:
+  - {version: "v4.1", path: gnomad-v4.1.tsv}
+
+expression:
+  - {version: "gtex-v10", path: gtex-v10.tsv}
+
+annotation:
+  - {version: "r1", path: annotation-r1.gff3}
+
+panel:
+  - {version: "epilepsy-3.2", path: panel-epilepsy-3.2.placeholder}
+
+clinvar:
+  - {version: "2026-06", path: clinvar-2026-06.placeholder}
+
+rules:
+  - {version: "v1", path: rules-v1}
+  - {version: "v2", path: rules-v2}

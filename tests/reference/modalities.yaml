@@ -1,0 +1,223 @@
+# Reference set for M6: diseases where a therapy actually exists, or where the
+# field has settled on which route is available.
+#
+# The test is not "does the module produce a list" but "does it pick the route
+# that was in fact taken, and rule out the ones that were in fact ruled out".
+# Where a case has a licensed therapy, the expectation is that therapy's class.
+#
+# Each case runs the full pipeline: mechanism rules first, then modality rules
+# on their output. A failure here can be in either file, which is the point —
+# M6 is only as good as the mechanism it is handed.
+
+cases:
+  - name: SMN1 loss of function, spinal muscular atrophy
+    note: >
+      The cleanest gene-replacement case there is: a small gene, a pure dosage
+      mechanism, and a licensed single-dose therapy that delivers a working
+      copy. If the module cannot get this one right, nothing downstream is
+      trustworthy.
+    variant: {gene: SMN1, consequence: stop_gained, cds_position: 400, zygosity: homozygous}
+    transcript: {accession: NM_000344.4, exon_count: 8, coding_length: 885}
+    gene:
+      haploinsufficiency: autosomal_recessive
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen SMA GCEP
+      loeuf: 0.6
+      distribution: {pathogenic_missense_total: 30, pathogenic_missense_in_hotspot: 8, pathogenic_truncating_total: 60}
+    expect:
+      mechanism: loss_of_function
+      indicated: [gene_addition]
+      # Upregulation joins the ruled-out list because SMA is recessive: both
+      # copies are affected, so there is no intact allele to raise.
+      contraindicated: [allele_specific_silencing, silenced_allele_reactivation, wild_type_upregulation]
+
+  - name: DMD frameshift in a skippable exon, Duchenne muscular dystrophy
+    note: >
+      Two things are true at once and the module has to hold both. Gene addition
+      is arithmetically impossible — dystrophin does not fit in a vector — which
+      is why micro-dystrophin exists. And the affected exon is a multiple of
+      three, so skipping it leaves a shortened protein that works, which is the
+      whole design of exon-skipping oligonucleotides.
+    # Exon lengths are made uniform at 141 nt so that the affected exon is a
+    # multiple of three — what this case tests is the frame rule, not DMD's real
+    # exon structure, and the real structure belongs with the ingest module.
+    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 4200, zygosity: hemizygous}
+    transcript: {accession: NM_004006.3, exon_count: 79, uniform_exon_length: 141}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen DMD GCEP
+      loeuf: 0.3
+      distribution: {pathogenic_missense_total: 60, pathogenic_missense_in_hotspot: 10, pathogenic_truncating_total: 900}
+    expect:
+      mechanism: loss_of_function
+      indicated: [truncated_construct, exon_skipping]
+      # wild_type_upregulation is contraindicated here, and getting that wrong is
+      # what motivated modelling zygosity at all: Duchenne is X-linked, the boy
+      # has one X, and it carries the variant. There is no intact allele to raise.
+      contraindicated: [gene_addition, allele_specific_silencing, wild_type_upregulation]
+
+  - name: UBE3A nonsense, Angelman syndrome
+    note: >
+      The paternal copy is intact and switched off. Waking it supplies product
+      without delivering any sequence at all — a route no other
+      loss-of-function gene offers, and one that reached a published phase 1
+      trial in 2025.
+    variant: {zygosity: heterozygous, gene: UBE3A, consequence: stop_gained, cds_position: 1000}
+    transcript: {accession: NM_130838.4, exon_count: 12, coding_length: 2628}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.2
+      imprinting: maternally_expressed
+      silenced_allele_intact: true
+      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 12, pathogenic_truncating_total: 90}
+    expect:
+      mechanism: loss_of_function
+      indicated: [silenced_allele_reactivation, gene_addition]
+      contraindicated: [allele_specific_silencing]
+
+  - name: SCN1A nonsense, Dravet syndrome
+    note: >
+      Haploinsufficiency in a gene of six kilobases. Replacement is off the
+      table on payload grounds alone, which is why the clinical programme here
+      raises output from the intact allele instead of delivering a new copy.
+    variant: {zygosity: heterozygous, gene: SCN1A, consequence: stop_gained, cds_position: 2000}
+    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen epilepsy GCEP
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.15
+      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+    expect:
+      mechanism: loss_of_function
+      indicated: [wild_type_upregulation, truncated_construct]
+      contraindicated: [gene_addition, allele_specific_silencing]
+
+  - name: MECP2 nonsense, Rett syndrome
+    note: >
+      Two lessons in one case. First, the contraindication that would be easy to
+      miss: loss of MECP2 causes Rett syndrome and *duplication* of MECP2 causes
+      a syndrome of its own, so dosage runs in both directions and an untitrated
+      working copy trades one disease for another. A module that only asked "is
+      this loss of function" would propose gene addition here.
+
+      Second, what is left. Affected girls are heterozygous and mosaic for X
+      inactivation, so an intact wild-type copy is present and silent in about
+      half of their cells. That is not imprinting, but it is the same
+      therapeutic opportunity, and it is the route this case actually has —
+      writing the reference set is what made that gap visible.
+    variant: {zygosity: heterozygous, gene: MECP2, consequence: stop_gained, cds_position: 763, protein_change: p.Arg255Ter}
+    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
+      haploinsufficiency: sufficient_evidence
+      triplosensitivity: sufficient_evidence
+      loeuf: 0.12
+      imprinting: x_inactivated
+      silenced_allele_intact: true
+      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: loss_of_function
+      indicated: [silenced_allele_reactivation]
+      contraindicated: [gene_addition, allele_specific_silencing]
+
+  - name: COL1A1 glycine substitution, severe osteogenesis imperfecta
+    note: >
+      The case the whole module is ordered around. The mutant chain is built
+      into the triple helix and ruins it, so supplying more normal collagen adds
+      material for the defective chains to spoil. Silencing the mutant allele is
+      the coherent direction, and gene addition must come back contraindicated
+      rather than merely unranked.
+    variant: {zygosity: heterozygous, gene: COL1A1, consequence: missense_variant, cds_position: 2461, protein_change: p.Gly821Ser}
+    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    gene:
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.25
+      forms_multimer: true
+      truncating_variants_are_milder: true
+      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: dominant_negative
+      indicated: [allele_specific_silencing, base_editing, prime_editing]
+      # Exon skipping is *not* listed here, and the omission is the point. The
+      # module distinguishes "something argues against this" from "nothing
+      # argues for it", and skipping an exon carrying a dominant-negative
+      # missense is the second: unranked, not prohibited. Writing it as a
+      # contraindication was the first draft of this fixture and was wrong.
+      contraindicated: [gene_addition, wild_type_upregulation]
+
+  - name: PIK3CA hotspot missense
+    note: >
+      Gain of function. Nothing that supplies more normal product helps, and
+      both routes that do so must be ruled out, not just left unranked.
+    variant: {zygosity: heterozygous, gene: PIK3CA, consequence: missense_variant, cds_position: 3140, protein_change: p.His1047Arg}
+    transcript: {accession: NM_006218.4, exon_count: 21, coding_length: 3213}
+    gene:
+      haploinsufficiency: no_evidence
+      loeuf: 0.6
+      distribution: {pathogenic_missense_total: 200, pathogenic_missense_in_hotspot: 170, pathogenic_truncating_total: 0}
+    expect:
+      mechanism: gain_of_function
+      indicated: [allele_specific_silencing, base_editing, prime_editing]
+      contraindicated: [gene_addition, wild_type_upregulation]
+
+  - name: Unresolved mechanism blocks every modality
+    note: >
+      The safety case. Dosage sensitivity is refuted, the mechanism does not
+      resolve, and the module must refuse to assess anything rather than let the
+      transcript facts alone generate a plausible-looking list of interventions.
+    variant: {gene: SYNTHETIC_HI_REFUTED, consequence: stop_gained, cds_position: 1000}
+    transcript: {accession: NM_999001.1, exon_count: 10, coding_length: 3000}
+    gene:
+      haploinsufficiency: dosage_sensitivity_unlikely
+      loeuf: 0.95
+      distribution: {pathogenic_missense_total: 20, pathogenic_missense_in_hotspot: 5, pathogenic_truncating_total: 0}
+    expect:
+      mechanism: undetermined
+      blocked: true
+
+  - name: MECP2 nonsense in a hemizygous male
+    note: >
+      The same variant in the same gene, and one route disappears. Reactivating
+      the inactive X only helps a heterozygous female, whose silent copy is wild
+      type; a hemizygous male has no second X. Nothing about the mechanism
+      changed — only the patient did, which is exactly the distinction zygosity
+      was added to carry.
+    variant: {zygosity: hemizygous, gene: MECP2, consequence: stop_gained, cds_position: 763}
+    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
+      haploinsufficiency: sufficient_evidence
+      triplosensitivity: sufficient_evidence
+      loeuf: 0.12
+      imprinting: x_inactivated
+      silenced_allele_intact: true
+      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+    expect:
+      mechanism: loss_of_function
+      indicated: [base_editing, prime_editing]
+      contraindicated: [gene_addition, silenced_allele_reactivation, wild_type_upregulation]
+
+  - name: Zygosity not supplied, so the verdicts carry a caveat
+    note: >
+      The middle case, and the reason unknown zygosity is not treated as either
+      answer. Reading it as "no wild-type allele" would rule out real options on
+      missing data; reading it as "yes" would offer options that may not exist.
+      The verdicts stand and the gap is stated instead.
+    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 2000}
+    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    gene:
+      curated_mechanism: loss_of_function
+      curated_mechanism_source: ClinGen epilepsy GCEP
+      haploinsufficiency: sufficient_evidence
+      loeuf: 0.15
+      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+    expect:
+      mechanism: loss_of_function
+      indicated: [wild_type_upregulation]
+      caveat_mentions: zygosity

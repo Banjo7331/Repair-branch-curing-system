@@ -1,0 +1,11 @@
+## GTEx-shaped median TPM matrix, trimmed to the genes and tissues these tests
+## use. Values are invented, and the file says so: what is under test is the
+## parse and the rules, not GTEx.
+Name	Description	Brain - Cortex	Muscle - Skeletal	Liver	Whole Blood	Skin - Sun Exposed (Lower leg)
+ENSG00000001	PLUSG	42.5	0.1	0.0	1.2	0.3
+ENSG00000002	DEMOG	0.02	61.0	2.1	0.4	0.1
+ENSG00000003	MINUSG	8.4	3.2	44.0	0.9	0.2
+ENSG00000004	SCN1A	35.0	0.05	0.01	0.02	0.03
+ENSG00000005	COL1A1	12.0	30.0	4.0	2.0	210.0
+ENSG00000006	MECP2	28.0	3.0	1.5	2.2	4.0
+ENSG00000007	DMD	9.0	120.0	0.4	0.3	1.0

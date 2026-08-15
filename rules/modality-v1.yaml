@@ -1,0 +1,435 @@
+version: modality-v1
+description: >
+  Which classes of intervention a mechanism admits, and which it rules out.
+
+  Read the contraindications first. They are the reason this file exists: a
+  contraindication outranks any number of indications, because reasons to try
+  something accumulate while one reason not to ends the matter. Nothing here is
+  a recommendation — "indicated" means coherent with the mechanism and not ruled
+  out, which is a long way short of "would work".
+
+thresholds:
+  # Above one on purpose: a single supporting rule is a hint, and this file runs
+  # downstream of a mechanism call that may itself be only "possible".
+  minimum_indication_points: 2
+
+# Interventions that only work if the patient has an unaffected copy of the gene.
+# Declared here rather than in code because it is a clinical claim like any
+# other. When zygosity is unknown, the engine raises a caveat naming whichever of
+# these came back indicated, instead of guessing in either direction.
+modalities_requiring_wild_type_allele:
+  - wild_type_upregulation
+  - allele_specific_silencing
+  - silenced_allele_reactivation
+
+rules:
+  # ==================================================================
+  # CONTRAINDICATIONS
+  # ==================================================================
+
+  - id: NO_GENE_ADDITION_WHEN_PRODUCT_DOES_HARM
+    modality: gene_addition
+    stance: contraindicates
+    strength: strong
+    when:
+      any:
+        - {feature: mechanism, eq: dominant_negative}
+        - {feature: mechanism, eq: gain_of_function}
+    because: >
+      The problem is not that the product is missing — it is that the mutant
+      product is doing something. Adding a normal copy leaves every mutant
+      subunit exactly where it was, and in a dominant-negative gene it can
+      supply more substrate for the defective one to spoil.
+    citation: Veitia 2007, Trends Genet; the standard argument against supplementation in dominant negatives
+
+  - id: NO_GENE_ADDITION_INTO_A_TRIPLOSENSITIVE_GENE
+    modality: gene_addition
+    stance: contraindicates
+    strength: strong
+    when: {feature: gene.triplosensitivity, in: [emerging_evidence, sufficient_evidence]}
+    because: >
+      Extra copies of this gene cause a described syndrome of their own. Dosage
+      sensitivity runs in both directions here, so an untitrated working copy
+      trades one disease for another.
+    citation: >
+      MECP2 is the worked case — loss causes Rett syndrome and duplication
+      causes MECP2 duplication syndrome, which is why supplementation for Rett
+      needs dose control rather than more protein.
+
+  - id: NO_GENE_ADDITION_ABOVE_THE_PAYLOAD_CEILING
+    modality: gene_addition
+    stance: contraindicates
+    strength: strong
+    when: {feature: feasibility.fits_viral_payload, is: false}
+    because: >
+      The coding sequence does not fit in a viral vector. This is arithmetic
+      rather than biology, and it is why some genes get a shortened construct
+      instead of a full-length one.
+    citation: AAV packaging limit ~4.7 kb; practical transgene ceiling is lower
+
+  - id: NO_UPREGULATION_WITHOUT_A_WILD_TYPE_ALLELE
+    modality: wild_type_upregulation
+    stance: contraindicates
+    strength: strong
+    when: {feature: variant.has_wild_type_allele, is: false}
+    because: >
+      There is no unaffected copy to raise output from. A hemizygous boy has one
+      X and it carries the variant; a homozygote and a compound heterozygote have
+      two copies and both are affected. Raising transcript from a gene whose every
+      copy is broken produces more broken transcript.
+    citation: >
+      The case that exposed this: Duchenne muscular dystrophy is X-linked, and
+      the first version of this file offered upregulation to hemizygous patients.
+
+  - id: NO_ALLELE_SPECIFIC_SILENCING_OF_THE_ONLY_COPY
+    modality: allele_specific_silencing
+    stance: contraindicates
+    strength: strong
+    when: {feature: variant.has_wild_type_allele, is: false}
+    because: >
+      Silencing the mutant allele is only safe when another one carries the
+      function. Where every copy is affected, allele-specific silencing is
+      indistinguishable from removing the gene entirely.
+    citation: Follows from the mechanism
+
+  - id: NO_X_REACTIVATION_WITHOUT_HETEROZYGOSITY
+    modality: silenced_allele_reactivation
+    stance: contraindicates
+    strength: strong
+    when:
+      all:
+        - {feature: gene.imprinting, eq: x_inactivated}
+        - {feature: variant.has_wild_type_allele, is: false}
+    because: >
+      Reactivating the inactive X only helps a heterozygous female, whose silent
+      copy is wild type. In a hemizygous male there is no second X, and in a
+      homozygote the silent copy carries the same variant.
+    citation: >
+      MECP2 is the contrast — reactivation is a research route in Rett syndrome
+      and is not available for the severe male encephalopathy phenotype.
+
+  - id: NO_ALLELE_SPECIFIC_SILENCING_WITHOUT_A_TARGET
+    modality: allele_specific_silencing
+    stance: contraindicates
+    strength: strong
+    when: {feature: variant.provides_allele_specific_target, is: false}
+    because: >
+      Silencing one allele and not the other requires a sequence difference to
+      aim at. Without one, the only achievable outcome is silencing both, which
+      converts the problem into haploinsufficiency or worse.
+    citation: Standard requirement for allele-selective ASO and siRNA design
+
+  - id: NO_ALLELE_SPECIFIC_SILENCING_WHEN_PRODUCT_IS_ALREADY_ABSENT
+    modality: allele_specific_silencing
+    stance: contraindicates
+    strength: strong
+    when: {feature: mechanism, eq: loss_of_function}
+    because: >
+      There is nothing harmful to remove. The mutant allele is already
+      producing nothing, and silencing it changes neither the amount of product
+      nor the phenotype.
+    citation: Follows from the mechanism
+
+  - id: NO_EXON_SKIPPING_THAT_BREAKS_THE_FRAME
+    modality: exon_skipping
+    stance: contraindicates
+    strength: strong
+    when: {feature: feasibility.exon_skipping_preserves_frame, is: false}
+    because: >
+      Removing this exon is not a multiple of three, so skipping it shifts the
+      reading frame rather than rescuing it — the problem moves downstream
+      instead of going away. In practice a skippable neighbour is sought
+      instead, which is a different design question.
+    citation: >
+      The Becker/Duchenne contrast — in-frame deletions in DMD leave a
+      shortened dystrophin that works, out-of-frame ones do not.
+
+  - id: NO_REACTIVATION_WITHOUT_A_SILENCED_ALLELE
+    modality: silenced_allele_reactivation
+    stance: contraindicates
+    strength: strong
+    when: {feature: feasibility.silenced_allele_available, is: false}
+    because: >
+      Reactivation needs an intact copy that is switched off. Where the gene is
+      not imprinted, or the silenced copy carries its own pathogenic variant,
+      there is nothing to wake.
+    citation: Follows from the mechanism
+
+  - id: NO_READ_THROUGH_WITHOUT_A_PREMATURE_STOP
+    modality: read_through
+    stance: contraindicates
+    strength: strong
+    when: {feature: consequence, ne: stop_gained}
+    because: Read-through addresses a premature stop codon; there is not one here.
+    citation: Follows from the mechanism
+
+  - id: NO_BASE_EDITING_OF_ANYTHING_BUT_A_SUBSTITUTION
+    modality: base_editing
+    stance: contraindicates
+    strength: strong
+    when:
+      not:
+        any:
+          - {feature: consequence, eq: missense_variant}
+          - {feature: consequence, eq: stop_gained}
+    because: >
+      A base editor converts one base to another in place. It cannot insert,
+      delete, or make a transversion outside its chemistry, so an indel is out
+      of scope regardless of how well it could be targeted.
+    citation: Komor et al. 2016; Gaudelli et al. 2017 — cytosine and adenine base editors
+
+  - id: NO_SPLICE_CORRECTION_WITHOUT_A_SPLICING_MECHANISM
+    modality: splice_correction
+    stance: contraindicates
+    strength: strong
+    when: {feature: mechanism, ne: splicing_disruption}
+    because: There is no mis-splicing to correct.
+    citation: Follows from the mechanism
+
+  - id: NO_UPREGULATION_WHEN_MORE_PRODUCT_DOES_NOT_HELP
+    modality: wild_type_upregulation
+    stance: contraindicates
+    strength: strong
+    when:
+      any:
+        - {feature: mechanism, eq: dominant_negative}
+        - {feature: mechanism, eq: gain_of_function}
+    because: >
+      Raising output from the intact allele adds normal product to a cell whose
+      problem is a mutant one. It does not dilute the mutant subunit out of a
+      complex in any reliable way.
+    citation: Follows from the mechanism
+
+  - id: NO_TRUNCATED_CONSTRUCT_WHEN_THE_FULL_GENE_FITS
+    modality: truncated_construct
+    stance: contraindicates
+    strength: moderate
+    when: {feature: feasibility.fits_viral_payload, is: true}
+    because: >
+      A shortened construct is a hypomorph by design and is accepted only
+      because the full sequence cannot be delivered. Where it can, there is no
+      reason to engineer a compromise.
+    citation: Micro-dystrophin exists because full-length dystrophin does not fit
+
+  # ------------------------------------------------------------------
+  # Where the gene is switched on.
+  #
+  # Note which modality is *absent* from this block: gene addition. A delivered
+  # transgene carries its own promoter, so the native gene being silent in the
+  # tissue does not rule it out. The three below all work through the native
+  # locus, and a locus that is off has nothing for them to act on.
+  # ------------------------------------------------------------------
+
+  - id: NOTHING_TO_RAISE_WHERE_THE_GENE_IS_SILENT
+    modality: wild_type_upregulation
+    stance: contraindicates
+    strength: strong
+    when:
+      all:
+        - {feature: expression.measured, is: true}
+        - {feature: expression.tpm_in_affected_tissue, lt: 1.0}
+    because: >
+      Raising output from the intact allele needs the locus to be transcribed in
+      the tissue that matters. Where it is silent there, more of nothing is
+      still nothing.
+    citation: GTEx median TPM in the affected tissue
+
+  - id: NOTHING_TO_WAKE_WHERE_THE_GENE_IS_SILENT
+    modality: silenced_allele_reactivation
+    stance: contraindicates
+    strength: strong
+    when:
+      all:
+        - {feature: expression.measured, is: true}
+        - {feature: expression.tpm_in_affected_tissue, lt: 1.0}
+    because: >
+      Reactivation lifts an epigenetic brake on a locus the cell would otherwise
+      transcribe. Where the whole locus is off in this tissue, releasing the
+      brake on one allele changes nothing.
+    citation: GTEx median TPM in the affected tissue
+
+  - id: NOTHING_TO_SILENCE_WHERE_THE_GENE_IS_SILENT
+    modality: allele_specific_silencing
+    stance: contraindicates
+    strength: strong
+    when:
+      all:
+        - {feature: expression.measured, is: true}
+        - {feature: expression.tpm_in_affected_tissue, lt: 1.0}
+    because: >
+      There is no transcript here to remove. If the mutant product is doing harm
+      it is doing it somewhere this tissue measurement does not cover, and the
+      target tissue is the question to settle before the molecule is.
+    citation: GTEx median TPM in the affected tissue
+
+  # ==================================================================
+  # INDICATIONS
+  # ==================================================================
+
+  - id: GENE_ADDITION_FOR_A_SMALL_LOSS_OF_FUNCTION_GENE
+    modality: gene_addition
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: feasibility.fits_viral_payload, is: true}
+    because: >
+      The cell needs more product and the coding sequence is small enough to
+      deliver. This is the mechanism-modality pairing that gene replacement was
+      designed for.
+    citation: >
+      SMN1 in spinal muscular atrophy is the clearest example — a small gene,
+      a pure dosage mechanism, and a single-dose replacement therapy.
+
+  - id: TRUNCATED_CONSTRUCT_FOR_A_LARGE_LOSS_OF_FUNCTION_GENE
+    modality: truncated_construct
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: feasibility.fits_viral_payload, is: false}
+    because: >
+      Product is needed but the full sequence cannot be carried, so a shortened
+      version that retains the essential domains is the remaining route. Expect
+      a hypomorph rather than an equivalent — which domains to keep is protein
+      engineering, not sequence lookup.
+    citation: Micro-dystrophin in Duchenne muscular dystrophy
+
+  - id: UPREGULATION_WHEN_ONE_ALLELE_STILL_WORKS
+    modality: wild_type_upregulation
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: feasibility.fits_viral_payload, is: false}
+    because: >
+      Where the gene is too large to deliver, raising output from the intact
+      allele attacks the same shortfall from the other side — for instance by
+      blocking a non-productive splice event so more transcript reaches
+      translation. It requires an allele that still works, which
+      haploinsufficiency by definition provides.
+    citation: >
+      The TANGO approach in SCN1A-related Dravet syndrome, where the gene is far
+      too large for a viral vector and one allele is intact.
+
+  - id: UPREGULATION_AS_A_SECOND_ROUTE_IN_HAPLOINSUFFICIENCY
+    modality: wild_type_upregulation
+    stance: indicates
+    strength: supporting
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: gene.haploinsufficiency.supported, is: true}
+    because: >
+      A gene curated as dosage sensitive is one where a modest increase in
+      output from the intact allele is expected to matter.
+    citation: ClinGen dosage sensitivity curation
+
+  - id: SILENCING_WHEN_THE_MUTANT_PRODUCT_DOES_HARM
+    modality: allele_specific_silencing
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: feasibility.allele_specific_silencing_indicated, is: true}
+        - {feature: variant.provides_allele_specific_target, is: true}
+    because: >
+      The mutant allele is producing something harmful and carries a sequence
+      difference to aim at. Removing that transcript addresses the mechanism
+      directly, and leaves the normal allele to carry the function.
+    citation: Allele-selective silencing in dominant disorders; e.g. huntingtin-lowering programmes
+
+  - id: EXON_SKIPPING_WHEN_THE_REMAINDER_IS_IN_FRAME
+    modality: exon_skipping
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: feasibility.exon_skipping_preserves_frame, is: true}
+        - {feature: consequence.is_predicted_null, is: true}
+    because: >
+      Splicing out the affected exon restores a reading frame that the variant
+      broke, and what is left is in frame. The product is shortened, so the
+      expectation is a milder phenotype rather than a normal one.
+    citation: >
+      Exon-skipping oligonucleotides in Duchenne muscular dystrophy — the aim is
+      to convert a Duchenne genotype into a Becker-like one.
+
+  - id: SPLICE_CORRECTION_FOR_A_SPLICING_MECHANISM
+    modality: splice_correction
+    stance: indicates
+    strength: strong
+    when: {feature: mechanism, eq: splicing_disruption}
+    because: >
+      The variant changes how the transcript is assembled, and a splice-switching
+      oligonucleotide can redirect assembly without touching the genome.
+    citation: Nusinersen in spinal muscular atrophy — SMN2 splice modulation
+
+  - id: REACTIVATION_WHEN_AN_INTACT_COPY_IS_SILENCED
+    modality: silenced_allele_reactivation
+    stance: indicates
+    strength: strong
+    when:
+      all:
+        - {feature: mechanism, eq: loss_of_function}
+        - {feature: feasibility.silenced_allele_available, is: true}
+    because: >
+      An intact copy of the gene is present and switched off by imprinting.
+      Waking it supplies product without delivering any new sequence — a route
+      no other loss-of-function gene offers.
+    citation: >
+      UBE3A-ATS antisense oligonucleotides in Angelman syndrome; a phase 1 trial
+      of rugonersen was published in Nature Medicine in 2025.
+
+  - id: PRIME_EDITING_FOR_A_SMALL_DEFINED_CHANGE
+    modality: prime_editing
+    stance: indicates
+    strength: moderate
+    when:
+      any:
+        - {feature: consequence, eq: missense_variant}
+        - {feature: consequence, eq: stop_gained}
+        - {feature: consequence, eq: frameshift_variant}
+    because: >
+      The change needed is small and precisely defined, which is what prime
+      editing writes. Whether any pegRNA reaches usable efficiency at this
+      position is a separate question and belongs to candidate design.
+    citation: >
+      Anzalone et al. 2019; first-in-human prime editing for p47phox-deficient
+      chronic granulomatous disease, NEJM 2025.
+
+  - id: BASE_EDITING_FOR_A_SUBSTITUTION
+    modality: base_editing
+    stance: indicates
+    strength: moderate
+    when:
+      any:
+        - {feature: consequence, eq: missense_variant}
+        - {feature: consequence, eq: stop_gained}
+    because: >
+      A single base substitution is within what a base editor can do. Whether
+      the target base falls inside an editing window, and what else in that
+      window would change with it, is candidate design rather than modality
+      choice.
+    citation: >
+      Personalised in vivo base editing for CPS1 deficiency, 2025 — the first
+      therapy designed for one patient.
+
+  - id: READ_THROUGH_FOR_A_PREMATURE_STOP
+    modality: read_through
+    stance: indicates
+    strength: supporting
+    when:
+      all:
+        - {feature: consequence, eq: stop_gained}
+        - {feature: mechanism, eq: loss_of_function}
+    because: >
+      A premature stop in a dosage-sensitive gene is the situation read-through
+      compounds address in principle. Supporting only, and deliberately so: the
+      clinical evidence for this class is contested, and it is listed to be
+      considered and dismissed rather than omitted.
+    citation: Ataluren in nonsense-mutation Duchenne — efficacy disputed across regulators

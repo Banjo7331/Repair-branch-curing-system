@@ -1,0 +1,187 @@
+version: aso-v1
+
+description: >
+  Antisense oligonucleotides: which windows along a target are worth
+  synthesising, and what is wrong with each one.
+
+  Two chemistries do two different jobs and they are not interchangeable. A
+  gapmer recruits RNase H to cut the transcript it binds, so it *destroys*; it
+  works on nuclear pre-mRNA and it is the right instrument when the mechanism is
+  a harmful product. A steric blocker recruits nothing — it occupies a site and
+  changes what the spliceosome does with it — so it *redirects*; it is the right
+  instrument for exon skipping and splice correction. Choosing the wrong one is
+  not a matter of degree: a steric blocker will not knock a transcript down, and
+  a gapmer aimed at a splice site degrades the transcript it was supposed to
+  rescue.
+
+  Everything below is composition and motif. What decides an ASO in practice is
+  whether the site is *accessible* — whether the target region is paired up
+  inside the transcript's own fold — and no structure prediction is attached to
+  this package. Two candidates identical on every rule here can differ tenfold
+  in the cell for that reason alone, so the ranking these rules support is
+  "which of these is not obviously bad", never "which of these is best".
+
+thresholds:
+  #: Composition bounds. GC below the floor binds too weakly; above the ceiling
+  #: it binds indiscriminately and aggregates.
+  gc_min_fraction: 0.35
+  gc_max_fraction: 0.65
+  #: Melting temperature against the RNA target, by the Wallace approximation.
+  tm_min_c: 45
+  tm_max_c: 75
+  #: A run of this many identical bases is a synthesis and aggregation problem;
+  #: for G specifically it is a G-quadruplex risk, which has its own rule.
+  homopolymer_run_nt: 4
+  guanine_run_nt: 4
+  #: CpG dinucleotides in a phosphorothioate backbone are a TLR9 ligand.
+  cpg_max: 1
+  #: How far a self-complementary stretch may run before the oligonucleotide
+  #: folds on itself instead of on the target.
+  self_complement_max_nt: 5
+  #: Tiling step. One gives every window; larger steps trade coverage for a
+  #: list somebody can read.
+  step_nt: 1
+
+chemistries:
+  - id: gapmer-2MOE
+    action: cleaves
+    length: 20
+    description: >
+      A 5-10-5 gapmer: ten deoxynucleotides flanked by five 2'-O-methoxyethyl
+      residues either side, phosphorothioate throughout. The DNA gap is what
+      RNase H recognises; the wings raise affinity and keep the ends from being
+      chewed off.
+    citation: The chemistry of nusinersen's class; Crooke et al. 2018, Cell Metab
+
+  - id: steric-2MOE
+    action: blocks
+    length: 18
+    description: >
+      Fully 2'-O-methoxyethyl-modified, so RNase H does not recognise the
+      duplex. It occupies a site rather than destroying it — which is what
+      nusinersen does at the ISS-N1 silencer in SMN2 intron 7.
+    citation: Nusinersen; Hua et al. 2008, Am J Hum Genet — ISS-N1
+
+  - id: steric-PMO
+    action: blocks
+    length: 25
+    description: >
+      A phosphorodiamidate morpholino: uncharged backbone, no RNase H, poor
+      nuclear uptake without conjugation. The exon-skipping drugs in Duchenne
+      are this chemistry, which is also why their delivered dose is the
+      controversy rather than their design.
+    citation: Eteplirsen and its successors; Aartsma-Rus & Corey 2020, Nucleic Acid Ther
+
+rules:
+  # ------------------------------------------------------------------
+  # Composition.
+  # ------------------------------------------------------------------
+
+  - id: GC_CONTENT_OUT_OF_RANGE
+    severity: caution
+    when:
+      any:
+        - {feature: aso.gc_fraction, lt: 0.35}
+        - {feature: aso.gc_fraction, gt: 0.65}
+    because: >
+      Below the floor the duplex is too weak to compete with the transcript's
+      own structure; above the ceiling the oligonucleotide binds partial matches
+      across the transcriptome and tends to aggregate. Neither bound is sharp,
+      which is why this is a caution and not a refusal.
+    citation: Standard antisense design guidance; Crooke et al. 2018, Cell Metab
+
+  - id: A_RUN_OF_FOUR_GUANINES
+    severity: blocking
+    when: {feature: aso.has_guanine_run, is: true}
+    because: >
+      Four consecutive guanines can form a G-quadruplex. The oligonucleotide
+      folds on itself rather than on the target, the synthesis yield falls, and
+      the structures are independently associated with non-specific protein
+      binding. This one is worth refusing rather than flagging, because the
+      window next door usually does not have it.
+    citation: Standard exclusion in antisense and siRNA design
+
+  - id: A_HOMOPOLYMER_RUN
+    severity: caution
+    when: {feature: aso.has_homopolymer_run, is: true}
+    because: >
+      Four or more identical bases make synthesis less clean and the product
+      harder to purify. A minor problem next to the others here, and a real one
+      at scale.
+    citation: Oligonucleotide synthesis practice
+
+  - id: TOO_MANY_CPG_MOTIFS
+    severity: caution
+    when: {feature: aso.cpg_count, gt: 1}
+    because: >
+      Unmethylated CpG dinucleotides in a phosphorothioate backbone are a TLR9
+      agonist. The immune activation is dose-dependent and was the reason
+      several early antisense programmes stopped, and the fix is usually to
+      slide the window rather than to change the chemistry.
+    citation: Krieg 2002, Annu Rev Immunol — CpG motifs and TLR9
+
+  - id: THE_OLIGONUCLEOTIDE_FOLDS_ON_ITSELF
+    severity: caution
+    when: {feature: aso.self_complement_nt, gt: 5}
+    because: >
+      A stretch complementary to its own reverse complement makes a hairpin.
+      Anything folded is not available to bind the target, and the fraction that
+      is folded is not something a composition rule can quantify — only that it
+      is more than zero.
+    citation: >
+      Self-structure is the crudest possible proxy for the real question, which
+      is target accessibility, and nothing here predicts that.
+
+  - id: THE_DUPLEX_IS_TOO_COLD
+    severity: caution
+    when: {feature: aso.tm_c, lt: 45}
+    because: >
+      Below body temperature by too little margin. The Wallace approximation
+      used here overstates its own precision, so this is a signal to compute a
+      proper nearest-neighbour value for the survivors rather than a verdict.
+    citation: Wallace rule; approximate by construction
+
+  # ------------------------------------------------------------------
+  # Where the window sits, which decides whether it does anything.
+  # ------------------------------------------------------------------
+
+  - id: A_SPLICE_SITE_TARGET_NEEDS_A_STERIC_BLOCKER
+    severity: blocking
+    when:
+      all:
+        - {feature: aso.covers_splice_site, is: true}
+        - {feature: aso.chemistry_cleaves, is: true}
+    because: >
+      A gapmer recruits RNase H, which cuts the transcript it binds. Aimed at a
+      splice site to redirect splicing, it destroys the very transcript the
+      redirection was meant to rescue. Exon skipping and splice correction are
+      steric-blocker jobs, and this is the one confusion in this file that
+      inverts the therapy rather than degrading it.
+    citation: Aartsma-Rus & Corey 2020, Nucleic Acid Ther
+
+  - id: A_STERIC_BLOCKER_AWAY_FROM_ANY_SPLICE_SIGNAL
+    severity: caution
+    when:
+      all:
+        - {feature: aso.chemistry_blocks, is: true}
+        - {feature: aso.covers_splice_site, is: false}
+        - {feature: aso.exon_annotated, is: true}
+    because: >
+      A steric blocker does nothing unless it covers something worth blocking: a
+      splice site, a silencer, an enhancer, a start codon. Sitting in the middle
+      of an exon it binds the transcript and changes nothing. Which regulatory
+      elements are where is exactly what this package does not read, so a window
+      away from the annotated boundaries is unassessed rather than useless.
+    citation: >
+      This package reads CDS records only. Splicing silencers and enhancers are
+      not in them.
+
+  - id: A_GAPMER_ON_MATURE_MESSENGER_RNA
+    severity: note
+    when: {feature: aso.chemistry_cleaves, is: true}
+    because: >
+      RNase H is a nuclear enzyme, so a gapmer acts mostly on pre-mRNA before
+      export. Targeting an intron is therefore not a mistake — it is often the
+      better choice — and a window chosen against the mature sequence may not
+      exist in the compartment where the enzyme is.
+    citation: Crooke et al. 2018, Cell Metab

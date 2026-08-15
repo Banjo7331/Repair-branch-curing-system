@@ -1,0 +1,10 @@
+##gff-version 3
+# A synthetic annotation over tests/data/design/target.fa.
+#
+# One gene, one coding block, and it exists for exactly one question: does a
+# bystander at 17:303 come back marked as coding sequence? The site the
+# minus-strand design uses (17:386-405) is deliberately left outside the CDS, so
+# the two answers in the report are different for a reason a reader can check.
+17	test	gene	250	350	.	+	.	ID=gene-TARG;gene=TARG
+17	test	mRNA	250	350	.	+	.	ID=rna-NM_000099.1;Parent=gene-TARG;gene=TARG;transcript_id=NM_000099.1;tag=MANE Select
+17	test	CDS	250	350	.	+	0	ID=cds-t1;Parent=rna-NM_000099.1

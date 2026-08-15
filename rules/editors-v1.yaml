@@ -1,0 +1,95 @@
+version: editors-v1
+
+description: >
+  Base editors, as data. Each entry says what conversion the deaminase makes,
+  what PAM its nuclease needs, and where in the protospacer it works — and every
+  one of those three is a published measurement that gets revised, which is why
+  they are here rather than in code.
+
+  Positions are numbered the way the base-editing literature numbers them: 1 is
+  the PAM-distal end of the protospacer and 20 is the base next to the PAM. The
+  window is the range of positions where the deaminase acts on most substrates.
+  It is not a boundary. Editing outside a stated window is reported at low
+  frequency for every editor here, and a window widened by one position is a
+  claim that more bystanders are in play — which is why widening one is an edit
+  to this file, visible in its digest, rather than a constant somebody changed.
+
+  What this file does not carry is efficiency. How often an editor actually
+  converts its target in a given sequence context is what BE-Hive and its
+  successors predict, and no such model is attached to this package.
+
+thresholds:
+  #: How far either side of the variant to look for a PAM. A protospacer whose
+  #: target sits in the window can start at most ~30 nt away, and the search is
+  #: bounded rather than open so a design run reads a fixed slice of reference.
+  search_padding_nt: 40
+  #: Bystanders above this count make a candidate worth flagging rather than
+  #: just listing. Two is not a limit — it is the point at which a report should
+  #: stop reading like a recommendation.
+  crowded_window_bystanders: 2
+
+editors:
+  - id: ABE8e-SpCas9
+    conversion: A>G
+    nuclease: SpCas9
+    pam: NGG
+    protospacer_length: 20
+    window: {start: 4, end: 8}
+    because: >
+      The workhorse adenine editor. TadA-8e is roughly a thousand-fold faster
+      than the evolved TadA of ABE7.10, which is what makes it the default and
+      also what makes its bystander problem worse: a faster deaminase edits more
+      of what it can reach, not only the base you wanted.
+    citation: Richter et al. 2020, Nat Biotechnol — ABE8e; Gaudelli et al. 2017, Nature — ABE7.10
+
+  - id: ABE7.10-SpCas9
+    conversion: A>G
+    nuclease: SpCas9
+    pam: NGG
+    protospacer_length: 20
+    window: {start: 4, end: 7}
+    because: >
+      The original adenine editor, slower and narrower. Where a target sits
+      alone in positions 4-7 and ABE8e would also catch a neighbour, the slower
+      enzyme is the more precise instrument — which is the one case for
+      preferring it.
+    citation: Gaudelli et al. 2017, Nature
+
+  - id: BE4max-SpCas9
+    conversion: C>T
+    nuclease: SpCas9
+    pam: NGG
+    protospacer_length: 20
+    window: {start: 4, end: 8}
+    because: >
+      The cytosine editor with codon-optimised expression and two uracil
+      glycosylase inhibitors. Its deaminase, rAPOBEC1, prefers a T immediately
+      5' of the target cytosine and is markedly slower in a GC context — a
+      preference this package does not model, and one that can make a candidate
+      listed here far worse in practice than the one below it.
+    citation: Koblan et al. 2018, Nat Biotechnol — BE4max; Komor et al. 2016, Nature — BE3
+
+  - id: ABE8e-SpRY
+    conversion: A>G
+    nuclease: SpRY
+    pam: NRN
+    protospacer_length: 20
+    window: {start: 4, end: 8}
+    because: >
+      Near-PAMless, which is what makes a target reachable when no NGG sits at
+      the right distance. The trade is real and runs both ways: relaxing the PAM
+      multiplies the number of candidate protospacers here, and multiplies the
+      number of off-target sites in the genome by the same logic.
+    citation: Walton et al. 2020, Science — SpG and SpRY
+
+  - id: ABE8e-SaCas9
+    conversion: A>G
+    nuclease: SaCas9
+    pam: NNGRRT
+    protospacer_length: 21
+    window: {start: 4, end: 8}
+    because: >
+      A smaller nuclease with a longer, more restrictive PAM. It exists in this
+      catalogue for a delivery reason rather than an editing one — SaCas9 and a
+      guide fit in a single AAV, and SpCas9 does not.
+    citation: Ran et al. 2015, Nature — SaCas9 and its NNGRRT PAM

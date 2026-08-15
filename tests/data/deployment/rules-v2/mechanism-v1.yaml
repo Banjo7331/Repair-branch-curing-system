@@ -1,0 +1,277 @@
+version: mechanism-v1
+description: >
+  Rules for determining how a variant causes disease. Each rule is a claim from
+  the literature, stated so that a geneticist can check it without reading any
+  code. The engine that applies them contains no clinical judgement of its own —
+  if a conclusion in this system is wrong, the error is in this file.
+
+  Read the strengths as weights, not as certainty. "decisive" means an expert
+  panel already answered the question; everything else is inference that has to
+  add up.
+
+thresholds:
+  # The literature quotes 50-55 nt for the junction rule; ClinGen SVI uses 50.
+  nmd_boundary_nt: 55
+  reinitiation_window_nt: 150
+  # AAV holds ~4.7 kb; what is left for a transgene after promoter and polyA.
+  aav_payload_kb: 4.4
+  minimum_points: 2
+  probable_points: 4
+  probable_margin: 2
+
+rules:
+  # ------------------------------------------------------------------
+  # Curation. An expert panel has already answered the question, and no
+  # inference below outranks it. The other rules still run — a curation
+  # describes the gene, and a variant can be an exception to it.
+  # ------------------------------------------------------------------
+
+  - id: CURATED_LOF
+    supports: loss_of_function
+    strength: decisive
+    when: {feature: gene.curated_mechanism, eq: loss_of_function}
+    because: >
+      An expert curation records loss of function as the disease mechanism for
+      this gene.
+    citation: ClinGen Gene-Disease Validity / GCEP specification
+
+  - id: CURATED_GOF
+    supports: gain_of_function
+    strength: decisive
+    when: {feature: gene.curated_mechanism, eq: gain_of_function}
+    because: An expert curation records gain of function as the disease mechanism.
+    citation: ClinGen Gene-Disease Validity / GCEP specification
+
+  - id: CURATED_DN
+    supports: dominant_negative
+    strength: decisive
+    when: {feature: gene.curated_mechanism, eq: dominant_negative}
+    because: An expert curation records a dominant-negative mechanism.
+    citation: ClinGen Gene-Disease Validity / GCEP specification
+
+  # ------------------------------------------------------------------
+  # Loss of function. A destroyed transcript plus a gene that needs both
+  # copies.
+  # ------------------------------------------------------------------
+
+  - id: NMD_WITH_ESTABLISHED_HAPLOINSUFFICIENCY
+    supports: loss_of_function
+    strength: strong
+    when:
+      all:
+        - {feature: consequence.is_predicted_null, is: true}
+        - {feature: nmd.outcome, eq: predicted}
+        - {feature: gene.haploinsufficiency.supported, is: true}
+    because: >
+      The transcript is degraded, so this allele produces nothing, and dosage
+      curation establishes that one working copy is not enough. This is
+      haploinsufficiency, and the therapeutic question is how to supply more
+      product.
+    citation: ClinGen dosage sensitivity curation; ClinGen SVI PVS1 decision tree
+
+  - id: NMD_WITH_POPULATION_INTOLERANCE
+    supports: loss_of_function
+    strength: supporting
+    when:
+      all:
+        - {feature: nmd.outcome, eq: predicted}
+        - {feature: gene.loeuf, lt: 0.35}
+    because: >
+      The population carries fewer loss-of-function variants in this gene than
+      expected, which is consistent with dosage sensitivity. Supporting only —
+      constraint is a statement about the gene, not about this variant.
+    citation: Karczewski et al. 2020, gnomAD LOEUF
+
+  # ------------------------------------------------------------------
+  # Dominant negative. The mutant product is present and interferes. This
+  # is the block of rules that inverts the therapy, so each one is gated
+  # on the product actually being made.
+  # ------------------------------------------------------------------
+
+  - id: NMD_ESCAPE_IN_MULTIMER
+    supports: dominant_negative
+    strength: strong
+    when:
+      all:
+        - {feature: consequence.is_predicted_null, is: true}
+        - {feature: nmd.outcome, eq: escape}
+        - {feature: gene.forms_multimer, is: true}
+    because: >
+      The stop codon escapes decay, so a truncated protein is made, and the
+      product assembles into a complex where a defective subunit can poison the
+      whole. Supplying a normal copy does not remove the poisoning subunit.
+    citation: ClinGen SVI PVS1 decision tree; Veitia 2007, Trends Genet
+
+  - id: NULL_ALLELES_ARE_MILDER
+    supports: dominant_negative
+    strength: strong
+    when:
+      all:
+        - {feature: gene.nulls_are_milder, is: true}
+        - {feature: consequence.preserves_reading_frame, is: true}
+    because: >
+      Carriers of null alleles in this gene are milder than carriers of
+      in-frame variants. If having none of the protein is better than having a
+      broken one, the broken one is doing harm rather than being absent.
+    citation: >
+      Classic contrast in COL1A1 — haploinsufficiency gives mild osteogenesis
+      imperfecta type I, glycine substitutions in the triple helix give the
+      severe forms.
+
+  - id: MISSENSE_IN_MULTIMER
+    supports: dominant_negative
+    strength: supporting
+    when:
+      all:
+        - {feature: consequence.is_missense, is: true}
+        - {feature: gene.forms_multimer, is: true}
+    because: >
+      A missense product that still assembles into its complex can interfere
+      with it. Supporting only — assembly is a necessary condition for a
+      dominant-negative effect, not evidence that one occurs.
+    citation: Veitia 2007, Trends Genet
+
+  # ------------------------------------------------------------------
+  # Gain of function. Read from where pathogenic variation sits rather
+  # than from any single variant.
+  # ------------------------------------------------------------------
+
+  - id: PATHOGENIC_MISSENSE_CLUSTERING
+    supports: gain_of_function
+    strength: strong
+    when:
+      all:
+        - {feature: consequence.is_missense, is: true}
+        - {feature: gene.missense_total, gte: 10}
+        - {feature: gene.missense_clustering_ratio, gte: 0.6}
+        # Clustering says "this domain is critical", which is not the same as
+        # "this variant confers a new activity". In a gene whose product
+        # multimerises, or where null alleles are milder, the same clustering is
+        # better explained by a mutant subunit disrupting a complex. Without
+        # these two gates the rule claims gain of function for the glycine
+        # substitutions in COL1A1, which are the textbook dominant negative —
+        # the reference set caught exactly that.
+        - {feature: gene.forms_multimer, is: false}
+        - {feature: gene.nulls_are_milder, is: false}
+    because: >
+      Pathogenic missense variants concentrate in one domain rather than
+      spreading across the gene, and no dominant-negative explanation is
+      available for that concentration — the product does not multimerise and
+      null alleles are not milder. That pattern is the signature of variants
+      conferring a new activity rather than removing an existing one.
+    citation: >
+      SCN2A is the worked example — gain-of-function variants cluster in the
+      channel's voltage sensors and pore, and cause a different, earlier
+      phenotype than the truncating variants.
+
+  - id: NO_PATHOGENIC_TRUNCATING_REPORTED
+    supports: gain_of_function
+    strength: moderate
+    when:
+      all:
+        - {feature: consequence.is_missense, is: true}
+        - {feature: gene.missense_total, gte: 10}
+        - {feature: gene.has_pathogenic_truncating, is: false}
+        # Same gate, same reason: "no pathogenic truncating variants" is also
+        # what a dominant-negative gene looks like, because losing the subunit
+        # is precisely what does *not* cause the disease there.
+        - {feature: gene.nulls_are_milder, is: false}
+    because: >
+      Missense variants cause disease in this gene while truncating variants do
+      not, and null alleles are not recorded as milder — so losing the product
+      appears tolerated, and the disease comes from the product doing something
+      new rather than from its absence.
+    citation: Standard mechanism inference; see ClinGen SVI PVS1 gating on gene mechanism
+
+  # ------------------------------------------------------------------
+  # Splicing. A mechanism of the transcript; the protein-level
+  # consequence follows from what the mis-splicing produces.
+  # ------------------------------------------------------------------
+
+  - id: SPLICE_PREDICTED_HIGH_PRECISION
+    supports: splicing_disruption
+    strength: strong
+    when:
+      all:
+        - {feature: splice.max_delta, gte: 0.5}
+        - any:
+            - {feature: consequence.is_splice_affecting, is: true}
+            - {feature: consequence, eq: intron_variant}
+    because: >
+      The splice prediction exceeds the high-precision threshold, so the
+      transcript is likely assembled wrongly. What that does to the protein is
+      a separate question, and exon-skipping feasibility depends on the frame.
+    citation: Jaganathan et al. 2019, SpliceAI (0.5 = high precision)
+
+  - id: SPLICE_PREDICTED_HIGH_RECALL
+    supports: splicing_disruption
+    strength: supporting
+    when:
+      all:
+        - {feature: splice.max_delta, gte: 0.2}
+        - {feature: splice.max_delta, lt: 0.5}
+        - {feature: consequence.is_splice_affecting, is: true}
+    because: >
+      The splice prediction clears the high-recall threshold only. Enough to
+      raise the possibility, not enough to rest a mechanism on.
+    citation: Jaganathan et al. 2019, SpliceAI (0.2 = high recall)
+
+  # ------------------------------------------------------------------
+  # Cautions. These do not argue for a mechanism — they argue that the
+  # evidence does not settle one. A strong caution caps confidence, which
+  # is how this file says "not so fast" without saying "no".
+  # ------------------------------------------------------------------
+
+  - id: NMD_ESCAPE_WITHOUT_DOMINANT_NEGATIVE_SIGNAL
+    supports: undetermined
+    strength: strong
+    when:
+      all:
+        - {feature: consequence.is_predicted_null, is: true}
+        - {feature: nmd.outcome, eq: escape}
+        - {feature: gene.forms_multimer, is: false}
+        - {feature: gene.nulls_are_milder, is: false}
+    because: >
+      A truncated protein is produced, but nothing here says whether it is
+      inert or harmful. That depends on which domains it retains, which this
+      model does not represent — and the two possibilities point at opposite
+      therapies.
+    citation: ClinGen SVI PVS1 decision tree, NMD-escape branch
+
+  - id: DOSAGE_SENSITIVITY_REFUTED
+    supports: undetermined
+    strength: strong
+    when:
+      all:
+        - {feature: consequence.is_predicted_null, is: true}
+        - {feature: gene.haploinsufficiency.refuted, is: true}
+    because: >
+      A predicted null variant in a gene where dosage sensitivity has been
+      actively refuted, or which acts recessively. Refutation is a finding, not
+      an absence of evidence, and treating this as haploinsufficiency would
+      contradict the curation.
+    citation: ClinGen dosage sensitivity curation (scores 30 and 40)
+
+  - id: NMD_PREDICTION_UNCERTAIN
+    supports: undetermined
+    strength: moderate
+    when: {feature: nmd.certain, is: false}
+    because: >
+      The escape call rests on the reinitiation rule rather than on the
+      junction rule. Whether translation actually restarts downstream depends
+      on sequence context this model does not read.
+    citation: ClinGen SVI PVS1 decision tree, start-proximal branch
+
+  - id: TOO_FEW_MISSENSE_TO_JUDGE_CLUSTERING
+    supports: undetermined
+    strength: moderate
+    when:
+      all:
+        - {feature: consequence.is_missense, is: true}
+        - {feature: gene.missense_total, lt: 10}
+        - {feature: gene.has_curated_mechanism, is: false}
+    because: >
+      Fewer than ten pathogenic missense variants are reported for this gene.
+      A clustering pattern read from a handful of reports is noise, and no
+      mechanism should be inferred from their distribution.
+    citation: Methodological guard, not a published rule
