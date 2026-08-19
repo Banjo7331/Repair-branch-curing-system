@@ -23,7 +23,7 @@ jobs:
       - name: Tests
         run: pytest -q
 
-      # The rules are the product, so both reference sets run as their own
+      # The rules are the product, so all three reference sets run as their own
       # steps. A green test suite with a rule file that no longer reproduces the
       # literature is exactly the failure this project exists to prevent.
       - name: Mechanism reference set
@@ -31,3 +31,6 @@ jobs:
 
       - name: Modality reference set
         run: python -m repairbench.cli reference --modalities
+
+      - name: Reanalysis reference set
+        run: python -m repairbench.cli reference --reanalysis

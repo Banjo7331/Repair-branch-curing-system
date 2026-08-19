@@ -13,10 +13,12 @@ test: ## Run the test suite (mechanism, modality, annotation, reanalysis)
 	$(PY) -m pytest tests
 
 .PHONY: reference
-reference: ## Re-run both reference sets: mechanisms, then modalities
+reference: ## Re-run all three reference sets: mechanisms, modalities, episodes
 	$(PY) -m repairbench.cli reference
 	@echo
 	$(PY) -m repairbench.cli reference --modalities
+	@echo
+	$(PY) -m repairbench.cli reference --reanalysis
 
 .PHONY: annotation
 annotation: ## Summarise the test annotation fixture

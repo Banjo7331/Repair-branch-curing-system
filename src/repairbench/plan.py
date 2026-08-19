@@ -215,6 +215,12 @@ class Locus:
     #: Genomic bounds of the coding exon the variant sits in, when an annotation
     #: was supplied. The exon-skipping designer needs it and nothing else does.
     exon: tuple[int, int] | None = None
+    #: Which strand the gene is transcribed from. ``None`` without an
+    #: annotation, and that is a refusal rather than a default: an antisense
+    #: oligonucleotide copies one genomic strand for a plus-strand gene and the
+    #: other for a minus-strand one, so guessing produces a molecule with the
+    #: sequence of its own target.
+    strand: str | None = None
 
     @classmethod
     def from_case(cls, case: dict[str, Any], store: TranscriptStore | None) -> Locus | None:
@@ -242,12 +248,16 @@ class Locus:
                 ),
                 None,
             )
+            strand = record.strand
+        else:
+            strand = None
         return cls(
             chromosome=chromosome,
             position=position,
             reference=str(genomic["reference"]).upper(),
             alternate=str(genomic["alternate"]).upper(),
             exon=exon,
+            strand=strand,
         )
 
 
@@ -437,6 +447,13 @@ def _run_designer(
         )
 
     if route.designer == "aso":
+        if locus.strand is None:
+            raise PlanError(
+                "no annotation was supplied, so the gene's strand is unknown and no "
+                "antisense oligonucleotide can be designed. Which genomic strand the "
+                "molecule copies is decided by the gene's orientation, and a guess "
+                "produces one with the sequence of the transcript it was meant to bind."
+            )
         start, end, exon = _aso_target(route, designers.routing, locus)
         region = sequences.fetch(locus.chromosome, start, end)
         discriminating = route.target != "affected_exon"
@@ -454,6 +471,7 @@ def _run_designer(
             region,
             designers.aso,
             chemistry=route.chemistry,
+            strand=locus.strand,
             exon=exon,
             must_cover=locus.position if discriminating else None,
         )

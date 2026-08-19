@@ -9,7 +9,7 @@ The layers, one package:
 | | |
 | --- | --- |
 | `vcf.py` | the patient's own file in; carried alleles, zygosity and read consequences out |
-| `context/` | ClinGen dosage, gnomAD constraint and GTEx expression in; gene-level facts out, with a citation on every one |
+| `context/` | ClinGen dosage, gnomAD constraint, GTEx expression and ClinVar submissions in; gene-level facts out, with a citation on every one |
 | `annotation/` | GFF3 and reference FASTA in; real transcripts, verified coordinates, left-aligned indels out |
 | mechanism (M5) | why this variant causes disease — loss of function, gain of function, dominant negative — with its evidence |
 | modality (M6) | which classes of intervention that mechanism admits, and which it rules out |
@@ -19,8 +19,8 @@ The layers, one package:
 
 ![Python](https://img.shields.io/badge/python-3.11%2B-3776AB)
 ![Rules](https://img.shields.io/badge/rules-as%20data-6f42c1)
-![Tests](https://img.shields.io/badge/tests-333-brightgreen)
-![Reference set](https://img.shields.io/badge/reference%20cases-21%2F21-brightgreen)
+![Tests](https://img.shields.io/badge/tests-495-brightgreen)
+![Reference set](https://img.shields.io/badge/reference%20cases-26%2F26-brightgreen)
 
 > ⚠️ **Not a medical device.** Research and educational use. A candidate here is a *design* — a protospacer, a pegRNA, an oligonucleotide, and what is wrong with each — not a therapy. No model of editing efficiency, prime-editing yield or target accessibility is attached to any of them, and "not ruled out" is not a recommendation.
 
@@ -133,11 +133,14 @@ Two of these deserve a note.
 
 ```bash
 repairbench plan case.yaml --fasta ref.fa --annotation ref.gff3   # the whole thing
-make test        # 333 tests
-make reference   # re-run both reference sets
+make check       # lint, types, 424 tests, all three reference sets
+make reference   # re-run the reference sets alone, case by case
 make rules       # print what the system believes, with citations
 repairbench assess case.yaml   # mechanism, then the modalities it admits
 ```
+
+[`RUNNING.md`](RUNNING.md) is the longer version: setup, one command per layer,
+and what each one's output is claiming.
 
 ## M6 — which interventions the mechanism admits
 
@@ -211,6 +214,34 @@ Four refusals are worth naming, and one of them was found by its own test:
 * **A gene ClinGen has not evaluated contributes nothing, not a default.** The first version created the provenance entry before parsing, so an unevaluated gene came out *present with nothing in it* — which reads downstream as "we have context for this gene". The test caught it.
 * **Only the MANE Select constraint row is read.** The file has a row per transcript with different numbers; taking whichever came first would make the value depend on file ordering.
 * **Local curation may not override a published fact.** Only the two fields with no public table are allowed there. A local override of something ClinGen publishes is a way to be quietly wrong.
+
+### ClinVar: the number the most inferential rule was reading
+
+The four facts above are the ones a gene *has*. There is a fifth the rules read, and for most of this project's life it was the weakest thing in the package: **where pathogenic variation sits in the gene**.
+
+It matters because of one rule. Nothing in ClinGen or gnomAD distinguishes gain of function from loss of function — both describe how badly the gene is needed, not what a variant does to it. What separates them is a pattern: pathogenic missense variants piling into one stretch of protein while truncating variants are *absent*, which is what a gene that causes disease by doing something new looks like in a variant database. That inference is the least direct thing the rule file attempts, and it was resting on `distribution:` blocks typed into a YAML file from memory of the literature. Plausible numbers, invented — the exact failure this package exists to be about.
+
+`context/clinvar.py` counts them. Three refusals shape it, and each one has a way of producing a confident wrong number:
+
+* **"Conflicting classifications of pathogenicity" contains the word "Pathogenic".** A parser matching the substring counts submitter disagreement as support. The accepted classifications are written out rather than matched.
+* **Review status is not decoration.** One laboratory with no assertion criteria and a reviewed expert panel are not the same evidence, and a count that averages them is how a tally becomes confident nonsense. The star rating is a threshold, kept per variant, and every citation says what was counted at what level: `6 pathogenic submissions at ≥1★ (1×3★, 2×2★, 3×1★)`.
+* **What kind of variant this is comes from the protein, not from ClinVar's `Type` column.** `Type` says how the *sequence* changed — deletion, duplication, single nucleotide variant. The rules ask what happened to the *product*, and one single nucleotide variant can be missense or nonsense, which argue for opposite mechanisms.
+
+And one thing it is careful to *name* rather than claim. A hotspot here is the densest window of N residues, N being a rule-file threshold, computed by a two-pointer sweep over sorted positions rather than by binning — binning would make the answer depend on where the bin edges happened to fall, which for a gene whose cluster straddles one understates exactly the clustering that matters. That is a measurement of tightness. It is *not* a curated functional domain, this file has no access to one, and the output says "densest 20-residue window" everywhere it could be mistaken for one.
+
+The count is now an ingested fact like the other four, with a pin and a citation:
+
+```
+$ repairbench context COL1A1 --clinvar refdata/variant_summary.txt.gz
+
+COL1A1
+  distribution = 3/3 missense in the densest window (100%), 2 truncating  [clinvar@2026-08/5d866ed862b2]
+      6 pathogenic submissions at ≥1★ (1×3★, 2×2★, 3×1★); hotspot = densest 20-residue window
+```
+
+Loading it without naming genes is refused. The file is millions of submissions; reading all of them to build context for nine would take minutes and look like it was working.
+
+The reference set still holds its counts inline rather than reading ClinVar at test time — CI has to run without a 250 MB download — so `repairbench clinvar` prints them in the shape the YAML wants, which makes updating after a release transcription rather than judgement. It prints real c. and p. positions alongside, on the transcript the submitters used, because a c. position is only meaningful against the transcript it was written on.
 
 ### What this validates, and what it does not
 
@@ -311,6 +342,22 @@ repairbench reanalyse NICU-014 --state /var/lib/repairbench --catalogue catalogu
 repairbench serve --addr :9090      # /health and /metrics between runs
 ```
 
+### The queue, as a page somebody opens
+
+Everything above renders one answer to one question asked now. Reanalysis is not that — it runs at three in the morning and exits — so `repairbench dashboard --state /var/lib/repairbench --out queue.html` writes the work list as a self-contained page: which cases moved, what the change was, which queue it went to, and the world each case was last compared against.
+
+The design question was not what to show. It was **what an empty page means**.
+
+A queue with nothing in it is the commonest correct output this system produces. It is also exactly what a scheduler that died in March looks like, and the two must not render alike — so the loudest element on the page is not an event, it is a case nobody has examined recently. Under a healthy run the page says so in words: *an empty queue below therefore means nothing moved, rather than nothing ran*.
+
+Three refusals hold it up. **Nothing is recomputed** — every urgency and queue is reproduced exactly as the run recorded it, so the page cannot promote an event or quietly demote one. **Quiet cases still get a row**, because three rows have to mean "three cases exist" rather than "three cases need attention". And **no JavaScript, no network, no build step**: one file that opens from disk, because a dashboard that needs a server running is a dashboard that is down exactly when the pipeline is.
+
+Building it turned up three defects underneath it, which is the usual result of making something visible:
+
+* **Urgency was being lost on every save.** A ledger written back to disk recorded its events' urgency and queue as `"-"`, so a case loaded and saved twice forgot how loudly it had been asking. Nothing read those fields until a queue needed to be listed.
+* **`case_ids()` returned things that were not cases.** The command line writes `<case>.variants.json` beside each ledger, and a `*.json` glob read that back as a case named `NICU-014.variants`. The first thing the dashboard ever did was crash on it. Cases are now identified by shape — a ledger is an object with a `case_id` — rather than by file name.
+* **The ledger could not tell "quiet" from "never ran".** It recorded when a case last *changed*, never when it was last *examined*, so the first version of the page reported every healthy silent case as dead. `last_examined_at` is now written on every run, especially the ones that find nothing.
+
 **The catalogue is what lets a counterfactual be real.** It maps `(axis, version)` to a file, so re-assessing a variant "as of January" loads January's file. Asked for a release the deployment no longer holds, it *refuses* — because falling back to the current one would produce a confident causal claim about an experiment that was never run. That refusal is the difference between attribution and a plausible story.
 
 **A case must be registered before it can be run.** A scheduled run will not invent the list of variants it is meant to be watching.
@@ -333,6 +380,138 @@ Two changes produce an identical outcome — a settled mechanism becomes unsettl
 | We move the NMD boundary from 50 nt to 55 | `mechanism_lost` | **validation**, routine — "not because the evidence did" |
 
 Both are defensible readings; only one is the field learning something. The test runs against real files in `tests/data/deployment/`, with two rule revisions and two curation releases on disk, because that claim is not testable against a stubbed engine.
+
+### The third reference set: episodes rather than mechanisms
+
+The other two reference sets ask whether the rules reach the answer the literature reached. Reanalysis has no answers of that kind — it has *episodes*: a release lands, an assessment moves or does not, and what is under test is the causal claim and who hears about it.
+
+```
+$ repairbench reference --reanalysis
+
+ok    A curation removes a settled answer
+        mechanism_lost → gene_curation → clinical_signout (high)
+ok    Our own rule edit reaches the same outcome
+        mechanism_lost → rules → validation (routine)
+ok    Two releases land, one of them matters
+        mechanism_lost → gene_curation → clinical_signout (high)
+ok    Two causes, either would have done it
+        mechanism_lost → gene_curation, rules → clinical_signout (high)
+ok    A release lands and nothing changes
+        none → nothing → none (silent)
+
+5/5 reanalysis episodes reproduced
+```
+
+Five shapes, and the last one is the one a laboratory meets most weeks: an annotation release re-issues the gene with identical structure, the digest moves, and nothing a rule reads differs. It must reach nobody. A reanalysis system that reports that week is a system somebody stops opening, and then it misses the week that mattered.
+
+The set is data, in `tests/reference/reanalysis.yaml`, with the story of each episode written next to it — and it did its job on the first run. The rule-edit episode was written expecting *high* urgency, and the system returned *routine*. The system was right: nothing had been learned about the patient, so nothing was time-critical; what was needed was somebody confirming the new rule was the better reading. The expectation was wrong and is now corrected, with the correction recorded in the file.
+
+
+### The browser as the operating surface
+
+`repairbench review --state /var/lib/repairbench --catalogue catalogue.yaml` serves the queue with the daily loop on it: register a case, re-examine one or all of them, read what moved, sign it off. After that command the terminal is not in the loop.
+
+`repairbench demo --state /tmp/try` is the same thing with a synthetic case already assessed against last month's releases, so the first button press has something real to report.
+
+Building that turned up a defect the command line had been hiding. **Registration did not take a baseline** — it recorded which variants a case was watching and nothing about what we currently concluded, so the first run after registration was always a no-op: every variant was being seen for the first time, and that run's answer silently became the reference. Register a case in January, run it in April, and February's curation change goes unreported. From a terminal the first run is one of many and the gap is invisible; from a page it is the button somebody presses expecting an answer. Registration now assesses the case as of today, and a baseline that could not be taken is reported without discarding the registration — the variants are the part somebody typed.
+
+The line that keeps this honest is **what the server is allowed to change**. It can start a run — which is *exactly* the comparison a scheduled process performs, from the same pinned files, so a button press cannot reach a conclusion cron would not have reached; it is the same run, started by a person instead of by a clock. It can record that a named person read a change. It cannot assert a mechanism, an urgency or a queue, because those come out of the rule files or they do not exist. A button that started a run is a person doing what the clock does; a button that changed a verdict would be a different product.
+
+Two consequences of that line, both visible in the code. Registering and running moved out of `cli.py` into `reanalysis/operations.py`, called by both entry points — two copies of "what registering a case means" is a guarantee the terminal and the page drift apart, and the one that drifts is the one nobody tests. And the case identifier is checked for path separators before it becomes a file name, because a form facing a browser is a different threat model from an argument typed by the person who owns the machine.
+
+### The one thing a reviewer needs to *do*
+
+The dashboard writes a page, and a page cannot do anything. `repairbench review --state /var/lib/repairbench` serves the same queue with one button on it, and the button closes a hole that had been in this package from the beginning.
+
+**Acknowledging was unreachable.** The surfacing policy suppresses any change whose fingerprint has already been acknowledged — that is what stops a queue from being a list that only grows. `CaseLedger.acknowledge()` existed, the policy read it, and *nothing exposed it*. A reviewer who read a change, decided it needed nothing, and closed the tab would be shown the same change at the next release, and the release after that.
+
+What closing it forced was a question about evidence rather than about UI. Acknowledging is the only write in this package that makes the system **quieter**, and an anonymous switch that suppresses future alerts is precisely what an incident review cannot reconstruct. So `acknowledge` now requires a name, refuses a blank one, and records the note alongside it — because *why* a change needed nothing is the part a later reviewer wants and the part a boolean throws away. The ledger enforces that, not the form, so `repairbench acknowledge CASE EVENT --by … --note …` is held to the same standard as the button.
+
+And the server says what it is worth. It binds to loopback, and the line under the button reads: *the name is recorded as attribution — this server does not authenticate it.* That is true, it is a real limitation, and writing it on the page is better than a password box that would imply otherwise. A deployment where the distinction matters needs an identity provider in front of this.
+
+It is `http.server` from the standard library, the same thing the metrics endpoint already runs — no framework, no template engine, no database, no JavaScript. Every page is a full document and every action is a form post followed by a redirect, so a refresh cannot replay it. The server can change exactly one thing: whether an event is marked as read, and by whom. It cannot re-run an analysis, edit a rule, or alter an urgency, so the worst a misclick can do is mark one event read — and the ledger keeps who did it.
+
+## Reproducing a drug, and the defect it found
+
+Every other check in this repository compares the package with a *statement* — the literature's conclusion, a curated release, its own reference set. This one compares it with an *object*: a molecule that exists, whose sequence is printed on an FDA label, which was manufactured and given to patients.
+
+**Eteplirsen** (EXONDYS 51) is a thirty-nucleotide morpholino that makes the spliceosome skip *DMD* exon 51. Its thirty bases are quoted verbatim in the label. The question is exact and has no room for interpretation: point this package at *DMD* exon 51 in GRCh38 and does the approved molecule come out?
+
+**The first run said no, and the reason was worse than a near miss.**
+
+`tile` reverse-complemented every window unconditionally. For a plus-strand gene that is right — the messenger is the forward sequence, so an oligonucleotide complementary to it is the reverse complement. For a **minus-strand** gene it is exactly backwards: the messenger *is* the reverse complement, so the oligonucleotide must carry the forward sequence. What the module returned for such a gene was the sequence of the transcript itself — a molecule identical to its own target, which hybridises with nothing.
+
+*DMD*, *COL1A1*, *MECP2*: minus strand, most of the reference set. Every antisense oligonucleotide this package had ever printed for them was inert by construction.
+
+Nothing caught it, and the two reasons are worth naming:
+
+* **The synthetic fixtures have no orientation.** A made-up sequence on a made-up contig has no strand to get wrong, so the arithmetic was tested and the biology was not.
+* **The one value that would have caught it was written down and never asserted.** `tests/test_real_locus.py` had `OLIGONUCLEOTIDE = "AGCCAACCTGGTGCTAAAGG"` sitting in a block headed *verified by hand* — and no test referenced it. It was the reverse complement, copied out of this function's own output, so even the hand verification had checked the code against itself.
+
+The fix gives `tile` a required `strand` with no default, because the defect was precisely a silent assumption of one. A plan without an annotation now refuses to design an antisense oligonucleotide at all rather than guessing the orientation.
+
+With that, the molecule comes out base for base:
+
+```
+$ repairbench aso --gene DMD --at chrX:31773960-31774192 --chemistry steric-PMO-30 \
+      --strand - --fasta refdata/chrX.fa
+
+CTCCAACATCAAGGAAGATGGCATTTCTAG   chrX:31774098-31774127   ← eteplirsen, FDA label 206488
+```
+
+Two smaller things fell out of the same exercise, and both are corrections to the rule file rather than to code:
+
+* **PMO length is not a property of the chemistry.** One entry declared 25 nucleotides; the approved exon-skipping morpholinos are 30, 25, 22 and 21. A catalogue that could not express eteplirsen's length could not have reproduced eteplirsen whatever the strand logic did.
+* **`tm_max_c: 75` was a threshold no rule read.** Writing the missing ceiling would have made things worse: the Wallace approximation returns about 86 °C for a thirty-mer, which is not a melting temperature, so the ceiling would have flagged an approved drug for a property this file cannot measure. The threshold is gone and a rule now says when the number is outside the approximation's range.
+
+### And the base editor, where the disagreement was the interesting part
+
+The same exercise for M7's other designer, on a real disease variant: ***FAH* c.1062+5G>A**, hereditary tyrosinemia type 1, the fifth base of a splice donor. A published worked example gives two guides — one that installs the variant in a cell line with a cytosine editor, one that corrects it with ABE7.10 — and prints both sequences.
+
+Handed nothing but the patient's allele and chromosome 15, this package independently produced the correction: **ABE7.10, PAM AGG, plus strand, target at protospacer position 5** — every structural property of the published guide, none of it supplied.
+
+And the protospacer differed from the printed one at **one base out of twenty**.
+
+That single base is the result worth the whole exercise. Position 3 of our guide reads G, where the paper reads A. Neither is a mistake. The authors' correction guide was written against their *cell line*, in which the variant had been installed by a cytosine editor — and a cytosine editor's window covers more than the base it was aimed at. Their allele carries the variant **plus a bystander**; a patient carries only the variant.
+
+The check that turns that from a story into a finding: run the *installing* guide through this package and ask what bystanders it predicts.
+
+```
+BE4max-SpCas9  GATACTCACCGGCCCGCTGA tgg  strand -  position 5
+bystanders:
+   position 7  g.80180228  →  T
+```
+
+`g.80180228` is c.1062+3 — exactly the base by which the published correction guide differs from ours. The package predicted the discrepancy before anyone knew what it was, and both guides land where the paper says they land: position 5, PAM TGG on the minus strand for the installer, PAM AGG on the plus strand for the corrector, all confirmed against GRCh38 rather than taken on trust.
+
+### And prime editing, where it found the worst defect of the three
+
+The third designer, against the paper that introduced the method: Anzalone et al. 2019, and its pegRNA for the Ashkenazi Tay-Sachs allele ***HEXA* c.1274_1277dupTATC**. The supplementary tables give the spacer, the 3′ extension, and the PBS and template lengths separately.
+
+Handed a patient allele and chromosome 15, this package produced:
+
+```
+spacer ATCCTTCCAGTCAGGGCCAT   PAM AGG   strand +   nick g.72346574, 5 nt from the edit
+PBS  10 nt  GCCCTGACTG
+RTT  21 nt  ACCTGAACCGTATATCCTATG
+3' extension  ACCTGAACCGTATATCCTATGGCCCTGACTG      ← identical to the published pegRNA
+```
+
+— and offered the paper's own second nick, `TACCTGAACCGTATATCCTA`, classified **PE3b**, which is correct and not obvious: that guide is the *installing* pegRNA's spacer, so it matches the corrected allele and cannot fire until the edit is made.
+
+Getting there took two corrections, and the first is the most serious defect this project has had.
+
+**The patient's sequence was built by deleting the wrong number of bases.** Both the patient and the edited sequence spliced `len(patient_allele)` bases out of the reference, where they had to splice out `len(wild_type_allele)` — what the reference actually carries there. For a substitution the two are equal and nothing shows. For an insertion or a deletion — *which is the entire reason this module exists rather than the base editor* — both came out wrong: a four-base insertion silently consumed four reference bases, so the "patient" sequence was the reference untouched, and the "edited" sequence carried a four-base deletion nobody asked for. Every pegRNA the module produced for an indel encoded a template that writes the wrong product.
+
+It survived a full module of tests because the fixtures exercise substitutions, where the bug is invisible by construction. The published molecule found it in one run, and found it *precisely*: the primer binding site matched the paper exactly — it is read upstream of the nick, where the bug does not reach — while the template encoded something else. A partial match is a much sharper diagnostic than a total mismatch.
+
+**And the design space could not express the molecule.** The module scanned primer binding site length across its whole range but emitted exactly one template length: the shortest that carries the edit plus the minimum homology arm. The published pegRNA uses a 16-nucleotide arm, and the three HEXA pegRNAs in that table alone use templates of 14, 21 and 27 nucleotides. Template length is one of the two parameters people vary at the bench, and fixing it to a constant meant the molecule somebody made was not in our design space at all. Both parameters are scanned now, and the candidate count grew from 40 to 600 — which the module accepts, because it ranks none of them and says so.
+
+**What this does and does not establish.** All three designers now agree with molecules that exist: strand handling, coordinate mapping, PAM scanning, nick placement, window arithmetic, bystander prediction, primer binding site and template derivation, PE3b classification and the chemistry catalogue all reproduce published objects at real loci.
+
+Two of the three were **wrong** when first asked, and neither defect was subtle once seen: the antisense module returned molecules identical to their own targets for every minus-strand gene, and the prime module built the patient's sequence by deleting the wrong bases for every insertion and deletion. Both had full test modules that passed. What the tests could not do is disagree with the package about what the answer *is* — a fixture's expected value is written by whoever writes the fixture, and against real molecules that stops being true.
+
+It establishes nothing about efficiency. The rule file cautions about eteplirsen, correctly, for binding an exon interior rather than a splice site, and the drug works anyway; that is why the caution is a caution and why nothing here ranks candidates.
 
 ## Scope and its edges
 
@@ -391,7 +570,169 @@ Every source is pinned by content digest, so a call can name the annotation rele
 
 The fixtures in `tests/data/` are **synthetic and labelled as such**: a 5 kb reference and a hand-written GFF3 with a plus-strand gene, a minus-strand gene, a gene with no MANE Select transcript, a non-coding transcript that must be dropped, and two homopolymer runs — one intronic, one inside a coding exon. What they test is the parser, the strand handling, the coordinate arithmetic and the shift algorithm, none of which care whether the coordinates correspond to a real locus.
 
-They are not a test against real RefSeq annotation, and the README will not pretend otherwise. Pointing this at a real GRCh38 GFF3 is a `--annotation` flag away and is the obvious next validation: parse the genes in the reference set, and check that the mechanism calls survive the move from uniform fixture exons to real ones. Where they do not, the reference set was passing for the wrong reason — which is exactly what this layer exists to find out.
+`./scripts/fetch-reference-data.sh` downloads the real files — RefSeq annotation, six chromosomes of GRCh38, ClinGen dosage, gnomAD constraint, GTEx expression — and `scripts/README.md` says what each one settles.
+
+## What happened when it was pointed at real data
+
+The reference set used to assert its own transcript structures, with exon lengths made uniform. It now carries the **real** ones, read from RefSeq's GRCh38 annotation (release 2024-08) for the transcript this package resolves for each gene. Here is what that move turned up, because the finding is the point and a green badge afterwards is not.
+
+**Every mechanism call survived.** All nine real-gene cases resolve to the same mechanism at the same confidence against real exon structures. The NMD predictions are unchanged too — every predicted-null case lands on the same side of the junction boundary it did before.
+
+**But three of them had the variant in the wrong exon.** *SCN1A* c.2000 was exon 9 under uniform exons and is exon 11 under real ones; *COL1A1* c.1000 moved from exon 12 to 15; *UBE3A* from exon 5 of 12 to exon 4 of 11. The NMD answer happened to survive because the distance to the last junction stayed on the same side of a 50-nucleotide line. It was right for a reason the fixture could not have guaranteed.
+
+**One case was asserting the opposite of what its own structure said.** The *DMD* case claims the affected exon is not a multiple of three, which is why skipping it alone would not restore the frame — and under real lengths c.4000 sits in exon 29, which is 150 nucleotides and *does* preserve the frame. The variant is now at c.7400 in exon 51: 233 nucleotides, out of frame, and the exon the first skipping oligonucleotide was aimed at. The case now tests what it says it tests.
+
+**Four of ten modality cases moved, all on the same rule.** Exon skipping is the one modality that reads exon-level detail, and it is the one that changed: *UBE3A* lost the indication (real exon 4 is 1247 nucleotides, so skipping it shifts the frame), while *SMN1* and *SCN1A* gained it. Nothing else moved — which is the reassuring half of the result: the rules that read gene-level evidence do not care what the exons look like, and the one rule that does was the one getting it wrong.
+
+**And the transcript chooser was quietly returning a prediction.** This is the finding worth the download on its own. *SMN1* — the flagship case of the whole modality set — has no MANE Select tag in RefSeq; its curated `NM_000344.4` sits on an unplaced scaffold, because the SMA locus is duplicated; and the assembled chromosome 5 carries only computed `XM_` models. The old rule was "take the longest coding sequence", so it returned `XM_054329962.1`: a transcript no human ever curated, with nothing in the output saying so.
+
+The fix is an explicit ladder, and every rung is reported in the selection reason:
+
+```
+SMN1  NM_000344.4  8 exons, 885 nt
+      no MANE Select transcript is annotated; curated over 33 modelled
+      transcript(s); on NT_187651.1, which is not an assembled chromosome;
+      longest coding sequence (885 nt of 3)
+```
+
+Curated over modelled first, because `NM_`/`NR_` were read by a human and `XM_`/`XR_` are a pipeline's guess. Then the assembled chromosome over a scaffold — but only *within* that choice, because for a duplicated locus the curated transcript on a scaffold is still the one the literature is about. Then length, to break what is left. A synthetic fixture cannot produce this situation, which is exactly why it survived until real data arrived.
+
+Two smaller corrections came with it: *UBE3A*'s MANE Select transcript is `NM_130839.5` and not `NM_130838.4`, and *MECP2*'s is `NM_001110792.2` — the e1 isoform, three coding exons — rather than the e2 `NM_004992.4` the fixture named.
+
+### And then the context files
+
+**Two parsers were reading the wrong line.** ClinGen's gene curation list opens with five lines of provenance and then a header that is *itself* commented — `#Gene Symbol`, tab-separated. The reader skipped every `#` line, so the first line of provenance became the column names, and the failure surfaced as *"this file has no Gene Symbol column"* about a file whose first column is Gene Symbol. GTEx's GCT has the mirror-image problem: it declares itself on line one and gives its dimensions on line two, and that dimensions line is tab-separated and uncommented, so anything hunting for "the first line with tabs" reads `56200` as a gene name.
+
+The rule that reads both is now explicit: while lines begin with `#`, keep the last one that has tabs in it, because a header has columns and a sentence does not; and a file that opens with the GCT magic has exactly two lines skipped, which is reading the format rather than guessing at it. Gzip is handled too — every one of these releases ships compressed and several ship only compressed. The shipped ClinGen fixture now carries a real preamble, so the shape is exercised by every test that touches it rather than only when somebody downloads 250 MB.
+
+**Every dosage value the reference set asserts is what ClinGen actually says.** Seven of the nine genes are curated, and all seven match: *SCN1A*, *UBE3A*, *DMD*, *COL1A1*, *SCN2A* and *MECP2* at sufficient evidence for haploinsufficiency, *PIK3CA* at none — correct, it is an oncogene and its variants are gain of function. Those numbers were typed in by hand months before the file was downloaded, and they were right.
+
+Two genes are absent from ClinGen's list entirely: *KRT14* and *SMN1*. The cases assert `no_evidence` for them, and that is now the one claim in the set that puts a word in ClinGen's mouth — "nobody has curated this" and "curated, and found nothing" are different, the model already distinguishes them, and the reference set does not yet.
+
+**The expression numbers are real and they behave.** *KRT14* at 7304 TPM in skin, *DMD* at 23 in skeletal muscle, *SCN1A* at 8.9 in cortex and **0.006 in liver**. Pointed at a liver-directed therapy for the *SCN1A* case, the tissue rules do what they were written to do:
+
+```
+Brain - Cortex       8.866 TPM  ->  loss_of_function (probable)
+                                    ruled out: allele_specific_silencing, gene_addition, ...
+Liver                0.006 TPM  ->  loss_of_function (possible)
+                                    caution: GENE_SILENT_IN_THE_AFFECTED_TISSUE
+                                    ruled out: ..., wild_type_upregulation
+```
+
+Confidence drops, the caution names itself, and raising output from the intact allele is withdrawn — because there is nothing to raise where the gene is not transcribed. That path had only ever been exercised against numbers this project invented.
+
+### The constraint file, and the schema that was not there
+
+gnomAD's downloads page links the **v2.1.1** per-transcript file, not the v4 one this package's parser was written against — and the two releases spell the same two columns differently. v2.1.1 calls LOEUF `oe_lof_upper` and marks the row to use with `canonical`, Ensembl's own pick; v4 calls them `lof.oe_ci.upper` and `mane_select`. Pointed at the file the site actually serves, the parser failed with "no such column", which is the correct failure and a useless one to somebody holding the right file.
+
+Both schemas are now declared and detected from the header — not from the file name, because a file renamed on the way to disk is ordinary and its columns are not — and the refusal names every spelling it looked for. Nothing matches a column by position or by resemblance: a constraint value read out of the wrong column is a number that looks entirely reasonable. `.bgz` is read too, which is what genomics ships and what `.gz`-only handling misses.
+
+One difference is recorded rather than smoothed over. MANE Select is an agreement between RefSeq and Ensembl about the clinical reference transcript; Ensembl canonical is Ensembl's own. They usually agree and are not the same claim, so every value says which one it came through:
+
+```
+loeuf = 0.071  [gnomad_constraint@v2.1.1/d54d60c8f87e]  gnomAD v2.1.1, Ensembl canonical transcript
+```
+
+**The reference set now carries the real numbers, and every mechanism holds.** Some of the hand-typed values were well off — *PIK3CA* was asserted at 0.6 and is really 0.117, *MECP2* at 0.12 and is really 0.407, *SMN1* at 0.6 and is really **1.929** — and none of the calls moved.
+
+*PIK3CA* is the one worth dwelling on. It is among the most loss-of-function-constrained genes in the genome, and its disease mechanism is gain of function; a system that read constraint as evidence for haploinsufficiency would have flipped it the moment the real number arrived. It did not, because the rule that reads LOEUF is scoped to predicted-null variants and marked *supporting* — constraint is a claim about a gene across a population, not about the variant in front of you. That scoping was written months before there was a real number to test it against, and this is the first evidence that it was the right call rather than a plausible one.
+
+*SMN1* at 1.929 is the mirror image: the gene behind spinal muscular atrophy is, by this measure, unconstrained. Which is correct and easy to misread — SMA is recessive, carriers are common, and the duplicated locus makes calling hard. A pipeline treating high LOEUF as "this gene tolerates loss" would draw exactly the wrong conclusion about the best-known recessive disease in the list.
+
+### One real variant, all the way through
+
+Everything above validates the *inputs*. The designers had still never seen a real chromosome: base editing, pegRNAs and antisense tiling had only ever run against an 800-nucleotide repeated trimer with PAMs placed by hand at known distances — a fixture built so the answer would be knowable, which is exactly why it cannot test this.
+
+So: *COL1A1* p.(Gly821Ser), c.2461G>A, on real GRCh38. The case is chosen for three properties. The gene is on the **minus strand**, so every coordinate, complement and exon ordering runs in the direction where mistakes hide. The change is G>A on the coding strand and therefore **C>T on the plus strand**, which is where a designer reasoning in genomic coordinates without thinking about strand produces a confident wrong molecule. And it is the textbook dominant negative.
+
+It runs, and it verifies from the outside:
+
+```
+$ repairbench plan col1a1-gly821ser.yaml --fasta chr17.fa --annotation GRCh38_latest_genomic.gff.gz
+
+# annotation  GRCh38_latest_genomic.gff.gz@b13607bdad3a
+# transcript  NM_000088.4 (MANE Select), 51 coding exons, 4395 nt; variant at c.2461
+
+COL1A1  NM_000088.4
+  mechanism   dominant_negative (probable)
+  not designed, ruled out by the modality rules
+    gene_addition, truncated_construct, wild_type_upregulation, ...
+  designed
+    allele_specific_silencing → aso     AGCCAACCTGGTGCTAAAGG  chr17:50190080-50190099
+    base_editing → base_editor          GACAGCCAACCTGGTGCTAA agg  chr17:50190083-50190102 (-)
+```
+
+Four things checked by hand against the reference, none of them by the code that produced them:
+
+* The genomic coordinate maps to **c.2461**, which is what the literature calls this variant. The case file carried both numbers, written independently; on a minus-strand gene they agree only if the exon reversal and the CDS arithmetic are both right.
+* The codon at that coordinate reads **GGC** on the coding strand — a glycine. The reference set has been calling this a glycine substitution since before there was a genome to check it against.
+* The base editor chose the **minus strand**, because C→T on the plus strand is A→G on the minus, and only an adenine editor can make it. Read the span out of the reference, substitute the patient's allele, complement it, and the guide comes out identical to the reported one.
+* The antisense oligonucleotide is the reverse complement of the patient's window, not the reference's — the distinction that decides whether it silences the affected allele or the healthy one.
+
+The chromosome-naming collision turned out to be the least of it: the case says `chr17`, RefSeq says `NC_000017.11`, and the aliases read out of the file's own region records reconciled them without anybody noticing.
+
+**What did break was the parser, on a gene nobody would think to invent.** *PEG10* is a retrotransposon-derived gene translated through a programmed ribosomal frameshift: the ribosome slips back one base and reads on in another frame, so two of its CDS blocks legitimately share a coordinate. RefSeq annotates that correctly. This package refuses it — a position inside the overlap has two CDS offsets and every calculation downstream assumes one — and *the refusal took down the entire file*. Three transcripts of one gene were denying access to the other **136,249**.
+
+They are now dropped individually, with the reason kept and readable, because "this transcript is unusable" and "this file is broken" are different sentences and only one of them is true.
+
+The whole thing is a test — `tests/test_real_locus.py`, with the verified values written down — that skips when `refdata/` is absent, so CI runs the other 368 and this one runs where the data is.
+
+### A default that was quietly making a claim
+
+The last thing the real ClinGen file turned up was in the model rather than in a parser. `DosageScore` had six values and the *default* was `no_evidence` — so every gene nobody had curated came out saying, in the output and in the provenance, that ClinGen had looked and found nothing.
+
+ClinGen has evaluated a few thousand genes. There are twenty thousand. `KRT14` and `SMN1` are two of the ones it has not, and both were carrying a finding it never made.
+
+There are now three absences, and they are different claims:
+
+| | meaning |
+| --- | --- |
+| `not_evaluated` | nobody has looked — and it is the default, because for most of the genome that is true |
+| `no_evidence` | ClinGen curated the gene and found nothing to support dosage sensitivity yet |
+| `dosage_sensitivity_unlikely` | ClinGen looked and concluded it does not apply — a finding, not a gap |
+
+Nothing in the rules changed and no reference case moved, which is the point: the correction is about what the system *says it knows*, not about what it concludes. A feature — `gene.haploinsufficiency.curated` — is now available to any rule that wants to hedge on an uncurated gene, and none does yet; putting that choice in the rule file rather than in code is where it belongs.
+
+The *SMN1* case had the same problem in sharper form. It asserted `autosomal_recessive`, which is ClinGen's dosage code 30, for a gene ClinGen has no dosage row for at all. SMA *is* recessive — that is not in doubt — but the claim was hanging on the wrong hook. It now hangs on the two that hold it honestly: the gene-disease validity curation, which does exist for *SMN1*, and the patient's zygosity, which is what actually rules the modalities out.
+
+### And then the last invented input, which cost two reference cases
+
+Everything above was a parser meeting a file that was shaped differently than expected. This one is different: the file was read correctly and said the rules were wrong.
+
+`distribution:` — how many pathogenic missense variants a gene has, how many cluster, how many truncating — was the last input the reference set was still inventing. It is also the input to the least direct thing the package attempts: telling gain of function from loss of function by noticing that missense variants pile into one stretch of protein while truncating variants stay away. Nine genes, counted from ClinVar at ≥1★:
+
+| gene | missense | truncating | in densest 20 aa | truncating share | mechanism in the set |
+| --- | ---: | ---: | ---: | ---: | --- |
+| PIK3CA | 76 | 4 | 18% | **5%** | gain of function |
+| KRT14 | 42 | 21 | **52%** | 33% | dominant negative |
+| SCN2A | 369 | 208 | 7% | 36% | gain of function |
+| SCN1A | 994 | 862 | 4% | 46% | loss of function |
+| COL1A1 | 446 | 657 | 6% | 60% | loss of function / dominant negative |
+| SMN1 | 18 | 41 | 44% | 69% | loss of function |
+| UBE3A | 40 | 159 | 12% | 80% | loss of function |
+| MECP2 | 136 | 612 | 25% | 82% | loss of function |
+| DMD | 24 | 1806 | 12% | 99% | loss of function |
+
+**Read the clustering column downward.** The most tightly clustered gene in the set is *KRT14*, a textbook dominant negative. Then *SMN1* and *MECP2*, both loss of function. Both gain-of-function genes are near the bottom. The rule that demanded 60% clustering to call gain of function was, on real data, a rule that would have preferred the dominant-negative gene.
+
+Two things make the measurement blind, and both are properties of the file rather than of the biology.
+
+**ClinVar counts alleles, not patients.** "Hotspot" is a claim about recurrence — the same residue, over and over, in unrelated people. The variant summary has one row per distinct allele, so p.His1047Arg contributes exactly as much as a variant seen once in one family, and a long tail of private missense outvotes the hotspot every time. The signal is not entirely gone — weighting by the number of submitting laboratories puts *PIK3CA* residues 1047, 545, 546 and 542 at the top, which are precisely the canonical hotspots — but counting rows deletes it.
+
+**A hotspot is rarely one window.** The rule's own citation named "the voltage sensors *and* the pore" — four domains, hundreds of residues apart. The densest single window catches one of them. Widening to the five densest non-overlapping windows and weighting by submitters still only reaches 31% for *SCN2A*.
+
+**What actually separates the genes is the last column.** *PIK3CA* sits at 5% truncating; the next gene up sits at 33%. That is the only clean separation in the table, and it is the claim the rule was really making all along — truncating variants are not a disease mechanism in this gene. But the rule that read it demanded *zero* truncating variants, and real *PIK3CA* has four. Any database of a hundred submissions holds a few rows that disagree with the rest, and a boolean hands each of them a veto.
+
+So `mechanism-v1` changed in two ways. `NO_PATHOGENIC_TRUNCATING_REPORTED` became `TRUNCATING_VARIATION_DEPLETED`, reading a share against a threshold in the rule file rather than a yes/no, and carrying the *strong* weight. `PATHOGENIC_MISSENSE_CLUSTERING` was demoted from *strong* to *supporting*: it still fires, it still argues for gain of function, and it can no longer reach that conclusion on its own.
+
+Two reference cases moved, and neither was tuned back:
+
+* ***PIK3CA*** dropped from `probable` to `possible`. Probable used to come from two rules firing — clustering and no-truncating — and **those two rules read the same dataset**. Two views of one distribution are not two pieces of evidence; scoring them as though they were is how a package talks itself into certainty. One strong rule now fires, and possible is what one rule buys.
+* ***SCN2A*** stopped resolving. The case always said the gene carries two mechanisms; what the real numbers show is that a gene-level distribution is the *sum* of both, and reads as neither — 36% truncating, 7% clustering. The variant in the case, p.Arg853Gln, genuinely is gain of function, but nothing the package can see says so. Answering the question would need variant-level curation or a functional assay. `undetermined` is now the expected result, and the case explains why.
+
+The reference set carries real CDS positions too, on the transcript each case pins: *COL1A1* c.2461G>A (p.Gly821Ser), *MECP2* c.916C>T at 3★, *DMD* c.4088del inside exon 30 — 162 nucleotides, still a multiple of three, so the exon-skipping case keeps the property it was built to test. Every input in the reference set now came from somewhere else.
+
+`tests/test_real_clinvar.py` runs the same cases against the file itself where it exists, so the copies in the YAML cannot drift from the release without something going red.
 
 ## The seam: one case, end to end
 
@@ -574,15 +915,25 @@ The rest is composition, from `rules/aso-v1.yaml`: four consecutive guanines blo
 
 **And the honest part:** what decides an antisense oligonucleotide is whether the site is *accessible* — whether it is paired up inside the transcript's own fold. Two windows identical on every rule above can differ tenfold for that reason alone. Folding the target is RNAfold's job, no folding model is attached, and so a tiling run here produces starting points rather than candidates. The report says exactly that, next to the number.
 
+### The name every chromosome has twice
+
+Pointing this at real files produced a collision within a minute of the download finishing. NCBI's annotation calls chromosome 17 `NC_000017.11`; UCSC's FASTA calls it `chr17`; a clinical VCF calls it `17` or `chr17` depending on who wrote the pipeline. All four are the same sequence, and string equality says they are four.
+
+The fix is not a table of accessions. That would go stale with every assembly patch, and would silently invent an answer for anything it had not heard of. NCBI opens each chromosome with a `region` record carrying `chromosome=17` in its attributes — so **the mapping is in the annotation, written by the people who assigned both names**, and `parse_gff3` reads it while it is streaming past anyway.
+
+Two refusals hold it in place. An unplaced scaffold carries a `chromosome` attribute too, so only records marked `genome=chromosome` contribute an alias — without that check a patch contig would alias itself to the chromosome it patches, and coordinates would resolve against the wrong sequence. And where the annotation says nothing, exactly one substitution is attempted: adding or removing the `chr` prefix, which carries no information. Anything more ambitious would be the package guessing which contig somebody meant.
+
 ## What is missing
 
-* **Real transcript structures.** The reference set uses simplified exon lengths — real counts and coding lengths, uniform exons — because what it tests is the rule layer. Real annotation belongs with the ingest module.
+* **Recurrence is unread.** The clustering measure counts alleles, and what a hotspot means is that many patients carry the same one. Number of submitting laboratories is a weak proxy and is not read by any rule; the honest input would be per-variant observation counts, which the variant summary does not carry.
+* **One window, and hotspots come in fours.** The clustering statistic takes the densest single window. A multi-domain protein has several, and the measure sees one of them — which is half of why the rule had to be demoted rather than repaired.
 * **More cautions than confidences.** The rule file currently has four rules that argue for uncertainty and nine that argue for a mechanism. That ratio should probably grow, not shrink.
 * **Splice rules are thin.** They classify the mechanism but do nothing with the consequence; deciding whether a skipped exon rescues the frame or moves the problem downstream needs the exon-level detail that ingest will provide.
 * **Tissue is bulk, adult and post-mortem.** GTEx answers "is this gene on in this tissue in an adult who died of something else". It does not answer which cell type within it, or what was happening in the developmental window that produced the phenotype — which, for most of the diseases this package is aimed at, is the window that mattered. Single-cell and developmental atlases exist; nothing here reads them.
+* **The reanalysis episodes are synthetic.** The shapes are real and the decisions they pin are the ones a laboratory needs, but the four files each episode runs against are ours. Reproducing a real week would mean holding a real ClinGen release, a real gnomAD release and a real annotation release from two different dates, and no laboratory publishes that set.
 * **The seam is one-way.** A plan runs mechanism → modality → molecule and stops. What it does not do is feed the design back: a modality with no workable candidate — every pegRNA blocked, every window refused — should arguably weaken the modality's verdict, and today it does not. The plan reports both facts and leaves the reader to connect them.
 * **Delivery is not assessed at all.** Whether a vector, an oligonucleotide or an editor reaches the affected tissue at a useful dose is the question that decides most of these in practice. Every selection says so; none of them answers it.
 * **Three designers, three absent models.** Base editing has no BE-Hive, prime editing no PRIDICT, antisense no folding model. All three are one class against a Protocol that already exists; obtaining and validating the weights is the actual work, and until it is done every list here is grouped rather than ranked.
 * **No silent PAM edits.** When the PAM survives a prime edit the report says so and stops there. Designing the silent change that destroys it — checking the reading frame, picking a synonymous codon — is the obvious next thing the module should do for itself.
 * **Splice-regulatory elements are unread.** The ASO module places a window against CDS boundaries and nothing else. Silencers and enhancers — ISS-N1, the element nusinersen was built around — are exactly what a steric blocker aims at, and no annotation here contains them.
-* **The design fixture is synthetic.** `tests/data/design/target.fa` is a repeating trimer with PAMs placed by hand at known distances, which tests the arithmetic and nothing else. A real locus with a real published guide — one somebody actually made and measured — is the validation that would mean something.
+* **Three molecules is three, not a benchmark.** Each designer has been checked against one published object, and each check was worth it — two of the three found real defects. What has not been done is the systematic version: a set of published guides per modality, run as a suite, with the disagreements counted rather than investigated one at a time.

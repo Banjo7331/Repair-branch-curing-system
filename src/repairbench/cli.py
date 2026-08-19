@@ -13,12 +13,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
-import logging
 import sys
-import time
 from collections.abc import Callable
-from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -26,10 +22,20 @@ from typing import Any
 
 import yaml
 
-from repairbench.annotation.fasta import IndexedFasta
+from repairbench.annotation.fasta import IndexedFasta, write_index
 from repairbench.annotation.gff import parse_gff3
 from repairbench.annotation.normalise import left_align, verify_reference
 from repairbench.annotation.store import TranscriptStore
+from repairbench.context.clinvar import (
+    ClinVarVariant,
+    VariantKind,
+    commonest_transcript,
+    distribution_for,
+    exemplars,
+    group_by_gene,
+    review_summary,
+)
+from repairbench.context.clinvar import read_variants as read_clinvar
 from repairbench.context.expression import Tissue, median_tpm
 from repairbench.context.expression import ingest as expression_ingest
 from repairbench.context.genelists import load_gene_lists
@@ -63,10 +69,12 @@ from repairbench.model import (
 )
 from repairbench.observability import Metrics, configure_logging, serve
 from repairbench.plan import Designers, Locus, load_routing, plan
+from repairbench.reanalysis import dashboard as queue_dashboard
+from repairbench.reanalysis import operations, webapp
 from repairbench.reanalysis.catalogue import SourceCatalogue
-from repairbench.reanalysis.engine import RepairbenchEngine, WatchedVariant
-from repairbench.reanalysis.store import JsonAssessmentStore, JsonCaseRepository
-from repairbench.reanalysis.usecase import ReanalyseCase
+from repairbench.reanalysis.engine import WatchedVariant
+from repairbench.reanalysis.reference import run_reference_set
+from repairbench.reanalysis.store import JsonCaseRepository
 from repairbench.reanalysis.world import DriftAxis, Pin, World
 from repairbench.report import render, render_selection
 from repairbench.ruleset import Ruleset, load_ruleset
@@ -83,6 +91,7 @@ DEFAULT_ASO_RULES = Path(__file__).parents[2] / "rules" / "aso-v1.yaml"
 DEFAULT_ROUTING = Path(__file__).parents[2] / "rules" / "routing-v1.yaml"
 REFERENCE_DIR = Path(__file__).parents[2] / "tests" / "reference"
 CONTEXT_DIR = Path(__file__).parents[2] / "tests" / "data" / "context"
+DEPLOYMENT_DIR = Path(__file__).parents[2] / "tests" / "data" / "deployment"
 
 
 def version(package: str) -> str:
@@ -125,6 +134,12 @@ def _add_design_commands(subcommands: Any) -> None:
     aso_command.add_argument("--at", required=True, help="chromosome:start-end, 1-based inclusive")
     aso_command.add_argument("--fasta", type=Path, required=True, help="indexed reference")
     aso_command.add_argument("--chemistry", required=True, help="an id from the ASO rule file")
+    aso_command.add_argument(
+        "--strand",
+        required=True,
+        choices=["+", "-"],
+        help="the gene's strand; decides which genomic strand the molecule copies",
+    )
     aso_command.add_argument("--aso-rules", type=Path, default=DEFAULT_ASO_RULES)
     aso_command.add_argument(
         "--exon", help="exon bounds as start-end, to place each window against the splice sites"
@@ -156,6 +171,99 @@ def _add_design_commands(subcommands: Any) -> None:
     offtarget_command.add_argument("--tissue", help="the tissue the therapy is aimed at")
 
 
+def _add_operations_commands(subcommands: Any) -> None:
+    """Registering a case, re-running it, and everything the deployment needs.
+
+    Split from the analysis commands for readability rather than for any
+    deeper reason: one function declaring fourteen subcommands is unreadable
+    long before it is unmaintainable."""
+    watch = subcommands.add_parser(
+        "watch", help="register a case so scheduled runs know what to re-examine"
+    )
+    watch.add_argument("case_id")
+    watch.add_argument("--state", type=Path, required=True)
+    watch.add_argument("--catalogue", type=Path, required=True)
+    watch.add_argument("--variant", action="append",
+                       help="gene:consequence:cds_position[:zygosity], repeatable")
+    watch.add_argument("--vcf", type=Path, help="read the variants from a VCF instead")
+    watch.add_argument("--sample", help="which sample in the VCF")
+    watch.add_argument("--fasta", type=Path, help="indexed reference, to left-align indels")
+    watch.add_argument("--phenotype", default="unrecorded", help="HPO snapshot label")
+    watch.add_argument("--tissue", help="the tissue the disease affects, as GTEx names it")
+
+    reanalyse = subcommands.add_parser(
+        "reanalyse", help="re-examine a registered case against the current releases"
+    )
+    reanalyse.add_argument("case_id")
+    reanalyse.add_argument("--state", type=Path, required=True)
+    reanalyse.add_argument("--catalogue", type=Path, required=True)
+    reanalyse.add_argument("--json", action="store_true", help="structured logs")
+    reanalyse.add_argument("--tissue", help="override the tissue recorded at registration")
+
+    dashboard = subcommands.add_parser(
+        "dashboard", help="the reanalysis queue across every watched case, as a page"
+    )
+    dashboard.add_argument("--state", type=Path, required=True)
+    dashboard.add_argument(
+        "--out", type=Path, help="write a self-contained HTML page here; omit for text"
+    )
+
+    review = subcommands.add_parser(
+        "review", help="serve the queue locally, so a reviewer can sign a change off"
+    )
+    review.add_argument("--state", type=Path, required=True)
+    review.add_argument(
+        "--catalogue",
+        type=Path,
+        help="release catalogue; without it the server shows and signs off a queue "
+        "but cannot start a run",
+    )
+    review.add_argument(
+        "--addr",
+        default=webapp.DEFAULT_ADDRESS,
+        help="loopback by default: this server records who says they reviewed a "
+        "change, and does not authenticate it",
+    )
+
+    acknowledge = subcommands.add_parser(
+        "acknowledge", help="record that somebody read one change, without a browser"
+    )
+    acknowledge.add_argument("case_id")
+    acknowledge.add_argument("event_id")
+    acknowledge.add_argument("--state", type=Path, required=True)
+    acknowledge.add_argument("--by", required=True, help="who is signing this off")
+    acknowledge.add_argument("--note", default="", help="why it needs nothing, or what was done")
+
+    demo = subcommands.add_parser(
+        "demo",
+        help="seed a synthetic case and serve it, so the whole loop is in the browser",
+    )
+    demo.add_argument("--state", type=Path, required=True, help="a directory to create")
+    demo.add_argument("--addr", default=webapp.DEFAULT_ADDRESS)
+
+    serve_command = subcommands.add_parser(
+        "serve", help="expose /health and /metrics between scheduled runs"
+    )
+    serve_command.add_argument("--addr", default=":9090")
+
+    reference = subcommands.add_parser(
+        "reference", help="re-run the published cases the rules are validated against"
+    )
+    reference.add_argument("--set", type=Path, default=REFERENCE_DIR / "mechanisms.yaml")
+    reference.add_argument(
+        "--modalities",
+        action="store_true",
+        help="run the modality reference set instead of the mechanism one",
+    )
+    reference.add_argument(
+        "--reanalysis",
+        action="store_true",
+        help="run the reanalysis reference set: episodes rather than mechanisms",
+    )
+    reference.add_argument("--deployment", type=Path, default=DEPLOYMENT_DIR)
+    reference.add_argument("--modality-rules", type=Path, default=DEFAULT_MODALITY_RULES)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="repairbench", description=__doc__)
     parser.add_argument("--rules", type=Path, default=DEFAULT_RULES, help="path to the rule file")
@@ -182,6 +290,42 @@ def main(argv: list[str] | None = None) -> int:
         help="GTEx-shaped median TPM matrix (GCT preamble stripped)",
     )
     context.add_argument("--tissue", help="report expression in this tissue only")
+    context.add_argument(
+        "--clinvar",
+        type=Path,
+        help="ClinVar variant_summary.txt.gz, to count where pathogenic variation sits; "
+        "requires naming the genes, because the file is millions of submissions",
+    )
+
+    clinvar = subcommands.add_parser(
+        "clinvar",
+        help="count pathogenic variation per gene, in the shape the reference set wants",
+    )
+    clinvar.add_argument("summary", type=Path, help="ClinVar variant_summary.txt.gz")
+    clinvar.add_argument("gene", nargs="+", help="symbols to count")
+    clinvar.add_argument(
+        "--minimum-stars", type=int, default=1, help="review threshold, 0-4 (default 1)"
+    )
+    clinvar.add_argument(
+        "--hotspot-window", type=int, default=20, help="clustering window, residues"
+    )
+    clinvar.add_argument("--assembly", default="GRCh38")
+    clinvar.add_argument(
+        "--transcript",
+        action="append",
+        help="cite examples from this accession only; repeatable",
+    )
+    clinvar.add_argument("--examples", type=int, default=3, help="how many positions to cite")
+    clinvar.add_argument(
+        "--release",
+        default="unversioned",
+        help="ClinVar's monthly label, e.g. 2026-08; the digest pins the file either way",
+    )
+
+    faidx = subcommands.add_parser(
+        "faidx", help="write the .fai index for a FASTA, as samtools would"
+    )
+    faidx.add_argument("fasta", type=Path)
 
     annotation = subcommands.add_parser(
         "annotation", help="summarise a GFF3: which transcripts, which are MANE Select"
@@ -197,44 +341,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _add_design_commands(subcommands)
 
-    watch = subcommands.add_parser(
-        "watch", help="register a case so scheduled runs know what to re-examine"
-    )
-    watch.add_argument("case_id")
-    watch.add_argument("--state", type=Path, required=True)
-    watch.add_argument("--catalogue", type=Path, required=True)
-    watch.add_argument("--variant", action="append",
-                       help="gene:consequence:cds_position[:zygosity], repeatable")
-    watch.add_argument("--vcf", type=Path, help="read the variants from a VCF instead")
-    watch.add_argument("--sample", help="which sample in the VCF")
-    watch.add_argument("--fasta", type=Path, help="indexed reference, to left-align indels")
-    watch.add_argument("--phenotype", default="unrecorded", help="HPO snapshot label")
-    watch.add_argument("--tissue", help="the tissue the disease affects, as GTEx names it")
-
-    reanalyse = subcommands.add_parser(
-        "reanalyse", help="re-examine a registered case against the current releases"
-    )
-    reanalyse.add_argument("case_id")
-    reanalyse.add_argument("--state", type=Path, required=True)
-    reanalyse.add_argument("--catalogue", type=Path, required=True)
-    reanalyse.add_argument("--json", action="store_true", help="structured logs")
-    reanalyse.add_argument("--tissue", help="override the tissue recorded at registration")
-
-    serve_command = subcommands.add_parser(
-        "serve", help="expose /health and /metrics between scheduled runs"
-    )
-    serve_command.add_argument("--addr", default=":9090")
-
-    reference = subcommands.add_parser(
-        "reference", help="re-run the published cases the rules are validated against"
-    )
-    reference.add_argument("--set", type=Path, default=REFERENCE_DIR / "mechanisms.yaml")
-    reference.add_argument(
-        "--modalities",
-        action="store_true",
-        help="run the modality reference set instead of the mechanism one",
-    )
-    reference.add_argument("--modality-rules", type=Path, default=DEFAULT_MODALITY_RULES)
+    _add_operations_commands(subcommands)
 
     args = parser.parse_args(argv)
 
@@ -255,7 +362,9 @@ def _dispatch(args: argparse.Namespace, ruleset: Ruleset) -> int:
     handlers: dict[str, Callable[[], int]] = {
         "rules": lambda: _print_rules(ruleset),
         "context": lambda: _context(args, ruleset.thresholds.expressed_above_tpm),
+        "clinvar": lambda: _clinvar(args),
         "annotation": lambda: _annotation(args.gff, set(args.gene) if args.gene else None),
+        "faidx": lambda: _faidx(args.fasta),
         "design": lambda: _design(args),
         "pegrna": lambda: _pegrna(args),
         "aso": lambda: _aso(args),
@@ -265,12 +374,12 @@ def _dispatch(args: argparse.Namespace, ruleset: Ruleset) -> int:
         "assess": lambda: _assess(ruleset, args.modality_rules, args.case),
         "watch": lambda: _watch(args),
         "reanalyse": lambda: _reanalyse(args),
+        "dashboard": lambda: _dashboard(args),
+        "review": lambda: _review(args),
+        "demo": lambda: _demo(args),
+        "acknowledge": lambda: _acknowledge(args),
         "serve": lambda: _serve(args),
-        "reference": lambda: (
-            _modality_reference(ruleset, args.modality_rules, REFERENCE_DIR / "modalities.yaml")
-            if args.modalities
-            else _reference(ruleset, args.set)
-        ),
+        "reference": lambda: _reference_command(ruleset, args),
     }
     return handlers[args.command]()
 
@@ -318,6 +427,7 @@ def _context(args: argparse.Namespace, expressed_above_tpm: float) -> int:
         constraint=args.constraint,
         local=args.local,
         expression_matrix=args.expression,
+        variant_summary=args.clinvar,
         genes=wanted,
     )
     tissue = Tissue(args.tissue) if args.tissue else None
@@ -331,6 +441,100 @@ def _context(args: argparse.Namespace, expressed_above_tpm: float) -> int:
             _print_expression(registry.gene(symbol).expression, tissue, expressed_above_tpm)
         print()
     print(f"{len(registry.genes)} genes")
+    return 0
+
+
+def _clinvar(args: argparse.Namespace) -> int:
+    """Count real pathogenic variation, and print it as the reference set writes it.
+
+    This command exists because of how the numbers it replaces got there. The
+    clustering rule — the one that calls gain of function from missense piling
+    into one stretch while truncating variants stay away — was validated against
+    ``distribution:`` blocks somebody typed from memory of the literature. They
+    were plausible, and plausible is the exact failure this package is supposed
+    to be about. The output below is paste-ready so that updating the reference
+    set after a ClinVar release is transcription rather than judgement.
+
+    What it prints alongside each count is as important as the count: how many
+    submissions, at what review level. A hotspot ratio from four single-submitter
+    records and one from four hundred with expert-panel review are the same
+    number and different evidence.
+    """
+    wanted = set(args.gene)
+    source = Source.of("clinvar", args.summary, args.release)
+    variants = read_clinvar(
+        source,
+        genes=wanted,
+        assembly=args.assembly,
+        minimum_stars=args.minimum_stars,
+    )
+    grouped = group_by_gene(variants)
+
+    print(f"# {source.pin}")
+    print(f"# {args.assembly}, ≥{args.minimum_stars}★, hotspot = densest "
+          f"{args.hotspot_window}-residue window")
+    print()
+
+    for symbol in sorted(wanted):
+        found = grouped.get(symbol, [])
+        print(f"{symbol}")
+        if not found:
+            # Not the same as zero pathogenic variation, and said differently:
+            # a symbol ClinVar files under another name returns nothing here,
+            # and reading that as "no reported variants" would invent a finding.
+            print("  nothing matched — check the symbol, the assembly, and the threshold")
+            print()
+            continue
+
+        distribution = distribution_for(found, hotspot_window_aa=args.hotspot_window)
+        print(
+            "  distribution: {"
+            f"pathogenic_missense_total: {distribution.pathogenic_missense_total}, "
+            f"pathogenic_missense_in_hotspot: {distribution.pathogenic_missense_in_hotspot}, "
+            f"pathogenic_truncating_total: {distribution.pathogenic_truncating_total}"
+            "}"
+        )
+        print(f"  # {len(found)} submissions ({review_summary(found)})")
+        _print_clinvar_examples(found, args)
+        print()
+
+    print(f"{len(grouped)}/{len(wanted)} genes matched, {len(variants)} submissions counted")
+    return 0
+
+
+def _print_clinvar_examples(found: list[ClinVarVariant], args: argparse.Namespace) -> None:
+    """Positions a case can cite, on the transcript the submitters used."""
+    accessions = set(args.transcript or [])
+    transcript = ""
+    if accessions:
+        transcript = next((a for a in accessions if any(v.transcript == a for v in found)), "")
+        if not transcript:
+            print(f"  # none of {sorted(accessions)} carries a submission here")
+    transcript = transcript or commonest_transcript(found)
+    if transcript:
+        print(f"  # positions below are on {transcript}")
+    for kind in (VariantKind.MISSENSE, VariantKind.TRUNCATING):
+        cited = exemplars(found, kind, transcript=transcript, limit=args.examples)
+        for variant in cited:
+            protein = f" ({variant.protein})" if variant.protein else ""
+            print(f"  # {kind.value:11} {variant.coding}{protein}  {variant.review.stars}★")
+
+
+def _faidx(fasta: Path) -> int:
+    """Index a FASTA so the reader can seek in it.
+
+    Here so that pointing this package at a real genome does not also require
+    installing samtools. The reader still refuses to build an index implicitly —
+    that would mean reading three gigabytes at a moment nobody asked for it.
+    """
+    index = write_index(fasta)
+    entries = index.read_text().splitlines()
+    print(f"{index.name}  {len(entries)} sequence(s)")
+    for entry in entries[:5]:
+        name, length, *_ = entry.split("\t")
+        print(f"  {name}  {int(length):,} bases")
+    if len(entries) > 5:
+        print(f"  … and {len(entries) - 5} more")
     return 0
 
 
@@ -421,6 +625,7 @@ def _aso(args: argparse.Namespace) -> int:
         target,
         rules,
         chemistry=args.chemistry,
+        strand=args.strand,
         exon=exon,
     )
     print(render_asos(outcome, limit=args.limit))
@@ -435,7 +640,14 @@ def _plan(ruleset: Ruleset, args: argparse.Namespace) -> int:
     where the mechanism could not be resolved is not.
     """
     case = yaml.safe_load(args.case.read_text())
-    store = TranscriptStore(parse_gff3(args.annotation)) if args.annotation else None
+    # Filtered to the case's gene. Parsing a whole RefSeq release to find the
+    # affected exon of one variant reads 1.5 GB to answer a question about one
+    # locus, and the filter is the difference between fifteen seconds and four
+    # minutes.
+    gene = case["variant"]["gene"]
+    store = (
+        TranscriptStore(parse_gff3(args.annotation, genes={gene})) if args.annotation else None
+    )
     query, provenance = build_query_with_provenance(case, args.annotation, args.fasta)
     for line in provenance:
         print(f"# {line}")
@@ -564,38 +776,27 @@ def _watch(args: argparse.Namespace) -> int:
     if args.vcf:
         variants = _variants_from_vcf(args, catalogue)
     elif args.variant:
-        variants = [_parse_variant(spec) for spec in args.variant]
+        variants = [operations.parse_variant(spec) for spec in args.variant]
     else:
         raise RepairbenchError("give either --vcf or at least one --variant")
-    cases = JsonCaseRepository(args.state)
+
+    registration = operations.register(
+        args.state,
+        args.case_id,
+        variants,
+        phenotype=args.phenotype,
+        tissue=args.tissue or "",
+        overwrite=True,
+        catalogue_path=args.catalogue,
+    )
+    if registration.caveat:
+        print(f"# {registration.caveat}")
+    print(f"watching {args.case_id}: {', '.join(v.key for v in variants)}")
     phenotype = Pin(
         axis=DriftAxis.PHENOTYPE,
         version=args.phenotype,
         digest=hashlib.sha256(args.phenotype.encode()).hexdigest(),
     )
-    cases.register(args.case_id, [v.key for v in variants], phenotype)
-    (Path(args.state) / "cases" / f"{args.case_id}.variants.json").write_text(
-        json.dumps(
-            [
-                {
-                    "key": v.key,
-                    "gene": v.gene,
-                    "consequence": v.consequence.value,
-                    "cds_position": v.cds_position,
-                    "zygosity": v.zygosity.value,
-                }
-                for v in variants
-            ],
-            indent=2,
-        )
-    )
-    (Path(args.state) / "cases" / f"{args.case_id}.tissue").write_text(args.tissue or "")
-    if not args.tissue:
-        print(
-            "# no --tissue given: nothing will be checked against where these genes are "
-            "switched on, and the modality lists will say so"
-        )
-    print(f"watching {args.case_id}: {', '.join(v.key for v in variants)}")
     print(f"current world: {World.of([*catalogue.latest_pins(), phenotype]).describe()}")
     return 0
 
@@ -669,78 +870,97 @@ def _variants_from_vcf(
 def _reanalyse(args: argparse.Namespace) -> int:
     """One run, then exit. Cron owns the schedule; this owns one comparison."""
     logger = configure_logging(json_output=args.json)
-    catalogue = SourceCatalogue.load(args.catalogue)
-    cases = JsonCaseRepository(args.state)
-    variants = {
-        entry["key"]: WatchedVariant(
-            key=entry["key"],
-            gene=entry["gene"],
-            consequence=Consequence(entry["consequence"]),
-            zygosity=Zygosity(entry["zygosity"]),
-            cds_position=entry["cds_position"],
-        )
-        for entry in json.loads(
-            (Path(args.state) / "cases" / f"{args.case_id}.variants.json").read_text()
-        )
-    }
-    tissue_file = Path(args.state) / "cases" / f"{args.case_id}.tissue"
-    recorded = tissue_file.read_text().strip() if tissue_file.exists() else ""
-    name = args.tissue or recorded
-    engine = RepairbenchEngine(catalogue, variants, Tissue(name) if name else None)
-    metrics = Metrics()
-
-    started = time.monotonic()
-    report = ReanalyseCase(
-        engine,
-        engine,
-        cases,
-        JsonAssessmentStore(args.state),
-        _SystemClock(),
-        _SequentialIds(args.state),
-        _LoggingNotifier(logger),
-    ).execute(args.case_id)
-    metrics.run_completed(report, time.monotonic() - started)
-
+    report = operations.run(
+        args.state,
+        args.catalogue,
+        args.case_id,
+        logger,
+        tissue=args.tissue or "",
+    )
     print(report.headline())
     for event in report.events:
         print(f"  → {event.summary()}")
-    (Path(args.state) / "metrics.prom").write_text(metrics.expose())
+    return 0
+
+
+def _dashboard(args: argparse.Namespace) -> int:
+    """The queue across every watched case.
+
+    Reads the state directory and nothing else — no catalogue, no rule file, no
+    re-examination. A dashboard that re-ran the analysis to draw itself would be
+    showing a different answer from the one the scheduled run recorded, which is
+    the one somebody is being asked to sign.
+    """
+    view = queue_dashboard.collect(JsonCaseRepository(args.state))
+    if args.out:
+        written = queue_dashboard.write(view, args.out, version=version("repairbench"))
+        print(f"{written}  {len(view.rows)} case(s), {len(view.waiting)} waiting")
+        if view.stale:
+            print(f"  ! {len(view.stale)} case(s) not examined recently")
+        return 0
+    print(queue_dashboard.render_text(view))
+    return 0
+
+
+def _demo(args: argparse.Namespace) -> int:
+    """Everything the review server does, with something already to look at.
+
+    One command rather than a sequence, because the sequence was the complaint:
+    seeing drift requires a case assessed against older releases *and* newer
+    ones to compare with, and assembling that by hand meant two server starts
+    and three terminal commands to reach a page whose whole point is that the
+    terminal is not needed.
+
+    The releases here are the repository's own fixtures and are synthetic. What
+    is real is the shape: a settled mechanism, a curation that refutes it, and
+    the queue entry that follows.
+    """
+    logger = configure_logging(json_output=False)
+    case_id = operations.seed_demo(args.state, DEPLOYMENT_DIR / "catalogue-old.yaml", logger)
+    print(f"seeded {case_id} against the older releases, in {args.state}")
+    print("open the page and press 'Re-examine every case' — the newer releases are loaded")
+    print(f"  http://{args.addr}\n")
+    webapp.serve(
+        args.addr,
+        JsonCaseRepository(args.state),
+        logger,
+        catalogue=DEPLOYMENT_DIR / "catalogue.yaml",
+        version=version("repairbench"),
+    )
+    return 0
+
+
+def _review(args: argparse.Namespace) -> int:
+    """Serve the queue for a person to work through."""
+    logger = configure_logging(json_output=False)
+    webapp.serve(
+        args.addr,
+        JsonCaseRepository(args.state),
+        logger,
+        catalogue=args.catalogue,
+        version=version("repairbench"),
+    )
+    return 0
+
+
+def _acknowledge(args: argparse.Namespace) -> int:
+    """The same action the review server performs, for anything that is not a person.
+
+    Here because a browser is a poor dependency for a step somebody may want in
+    a script, and because the constraint that matters — an acknowledgement is
+    attributed or it does not happen — belongs to the ledger rather than to the
+    form that happens to be in front of it. ``--by`` is required by argparse and
+    a blank one is refused underneath, in both paths.
+    """
+    app = webapp.ReviewApp(JsonCaseRepository(args.state))
+    app.acknowledge(args.case_id, args.event_id, args.by, args.note)
+    print(f"{args.event_id} acknowledged by {args.by}")
     return 0
 
 
 def _serve(args: argparse.Namespace) -> int:
     serve(args.addr, version("repairbench"), Metrics(), configure_logging())
     return 0
-
-
-class _SystemClock:
-    def now(self) -> datetime:
-        return datetime.now(UTC)
-
-
-class _SequentialIds:
-    """Event ids that keep counting across invocations, because each run is a
-    separate process and a counter starting at one every time would collide."""
-
-    def __init__(self, state: Path) -> None:
-        self._path = Path(state) / "next-event-id"
-
-    def next_id(self) -> str:
-        current = int(self._path.read_text()) if self._path.exists() else 0
-        current += 1
-        self._path.write_text(str(current))
-        return f"evt-{current:06d}"
-
-
-class _LoggingNotifier:
-    def __init__(self, logger: logging.Logger) -> None:
-        self._logger = logger
-
-    def publish(self, report: object) -> None:
-        self._logger.warning(
-            "reanalysis needs a human",
-            extra={"fields": {"case": getattr(report, "case_id", "?")}},
-        )
 
 
 def _annotation(gff_path: Path, genes: set[str] | None) -> int:
@@ -835,6 +1055,33 @@ def _assess(ruleset: Ruleset, modality_rules: Path, case_path: Path) -> int:
     return 0
 
 
+def _reference_command(ruleset: Ruleset, args: argparse.Namespace) -> int:
+    """Route to whichever of the three reference sets was asked for."""
+    if args.reanalysis:
+        return _reanalysis_reference(REFERENCE_DIR / "reanalysis.yaml", args.deployment)
+    if args.modalities:
+        return _modality_reference(ruleset, args.modality_rules, REFERENCE_DIR / "modalities.yaml")
+    return _reference(ruleset, args.set)
+
+
+def _reanalysis_reference(set_path: Path, deployment: Path) -> int:
+    """Re-run the reanalysis episodes: what moved, why, and who hears about it."""
+    results = run_reference_set(set_path, deployment)
+    misses = 0
+
+    for result in results:
+        if not result.reproduced:
+            misses += 1
+        print(f"{'ok  ' if result.reproduced else 'MISS'}  {result.episode.name}")
+        print(f"        {result.summarise()}")
+        for mismatch in result.mismatches:
+            print(f"        ! {mismatch}")
+
+    print()
+    print(f"{len(results) - misses}/{len(results)} reanalysis episodes reproduced")
+    return 1 if misses else 0
+
+
 def _modality_reference(ruleset: Ruleset, modality_rules: Path, set_path: Path) -> int:
     """Re-run the modality reference set: diseases where a route was in fact taken."""
     modality_ruleset = load_modality_ruleset(modality_rules)
@@ -919,8 +1166,8 @@ def build_query(case: dict[str, Any]) -> MechanismQuery:
     distribution = MissenseDistribution(**gene_spec.pop("distribution", {}))
     gene = Gene(
         symbol=variant_spec["gene"],
-        haploinsufficiency=DosageScore(gene_spec.pop("haploinsufficiency", "no_evidence")),
-        triplosensitivity=DosageScore(gene_spec.pop("triplosensitivity", "no_evidence")),
+        haploinsufficiency=DosageScore(gene_spec.pop("haploinsufficiency", "not_evaluated")),
+        triplosensitivity=DosageScore(gene_spec.pop("triplosensitivity", "not_evaluated")),
         loeuf=gene_spec.pop("loeuf", None),
         forms_multimer=gene_spec.pop("forms_multimer", False),
         truncating_variants_are_milder=gene_spec.pop("truncating_variants_are_milder", False),
