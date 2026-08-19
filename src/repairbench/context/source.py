@@ -17,9 +17,12 @@ exactly the distinction that matters.
 from __future__ import annotations
 
 import csv
+import gzip
 import hashlib
+import itertools
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -111,7 +114,17 @@ class Fact:
         """
         if isinstance(self.value, dict):
             return f"{len(self.value)} tissues measured"
-        return repr(self.value)
+        # Enums before strings, because every enum here is a StrEnum and would
+        # otherwise be printed by its repr — ``<DosageScore.SUFFICIENT_EVIDENCE:
+        # 'sufficient_evidence'>``, which is Python talking about itself in a
+        # line meant to tell a reviewer what ClinGen said.
+        if isinstance(self.value, Enum):
+            return str(self.value.value)
+        # Strings keep their quotes, so a value that was supplied and is empty
+        # reads as blank rather than as a line nobody wrote.
+        if isinstance(self.value, str):
+            return repr(self.value)
+        return str(self.value)
 
 
 @dataclass(slots=True)
@@ -149,6 +162,80 @@ class Provenance:
         return "\n".join(lines)
 
 
+def _open_text(path: Path) -> Iterator[str]:
+    """Open a source file, transparently if it is gzipped.
+
+    Every one of these releases ships compressed and several ship *only*
+    compressed. Requiring the caller to gunzip first meant either a decompressed
+    copy on disk next to the original, or a helpful error at the point of use —
+    and the second is what happened: the parser read the gzip magic bytes as a
+    header and complained about missing columns.
+    """
+    if path.suffix in _COMPRESSED:
+        with gzip.open(path, "rt", newline="") as handle:
+            yield from handle
+    else:
+        with path.open(newline="") as handle:
+            yield from handle
+
+
+#: Suffixes that mean gzip. ``.bgz`` is bgzip — block-gzip, which every gzip
+#: reader accepts and which is what gnomAD and most genomics releases ship.
+_COMPRESSED = {".gz", ".bgz", ".bgzf"}
+
+
+#: The first line of a GCT file. The format declares itself, so skipping its
+#: preamble is reading the format rather than guessing at it.
+_GCT_MAGIC = "#1."
+
+
+def _without_preamble(handle: Iterator[str]) -> Iterator[str]:
+    """Drop the comment lines above the header, and keep the header itself.
+
+    Real files put several. ClinGen's gene curation list opens with five lines
+    of provenance and then a header that is *also* commented — ``#Gene
+    Symbol``, tab-separated — and GTEx's GCT opens with two lines of counts
+    before a header that is not commented at all.
+
+    The rule that reads both: while lines begin with ``#``, keep only the last
+    one that contains a tab, because a header has columns and a sentence does
+    not. If none does, the first uncommented line is the header. Skipping every
+    ``#`` line unconditionally — which this used to do — silently made
+    ClinGen's first line of provenance into the column names, and the failure
+    surfaced as "this file has no Gene Symbol column" about a file whose second
+    column is Gene Symbol.
+    """
+    first = next(handle, None)
+    if first is None:
+        return
+    if first.startswith(_GCT_MAGIC):
+        # A GCT: version line, then a line of dimensions, then the header. The
+        # dimensions line is tab-separated and uncommented, so anything looking
+        # for "the first line with tabs" would take it for the columns and read
+        # 56200 as a gene name.
+        next(handle, None)
+        yield from handle
+        return
+    handle = itertools.chain([first], handle)
+
+    header: str | None = None
+    for line in handle:
+        if line.startswith("#"):
+            if "\t" in line:
+                header = line
+            continue
+        if header is not None:
+            yield header
+            header = None
+        yield line
+        break
+    else:
+        if header is not None:
+            yield header
+        return
+    yield from handle
+
+
 def read_tsv(source: Source, *, required: set[str]) -> Iterator[dict[str, str]]:
     """Stream a tab-separated file, keyed by header name.
 
@@ -156,19 +243,17 @@ def read_tsv(source: Source, *, required: set[str]) -> Iterator[dict[str, str]]:
     between releases of both files this package reads, and a positional parser
     would keep working while silently reading the wrong column.
     """
-    with source.path.open(newline="") as handle:
-        lines = (line for line in handle if not line.startswith("##"))
-        reader = csv.DictReader(lines, delimiter="\t")
-        fieldnames = [name.lstrip("#").strip() for name in (reader.fieldnames or [])]
-        missing = sorted(required - set(fieldnames))
-        if missing:
-            raise ContextError(
-                f"{source.name} ({source.path.name}) has no column(s): {', '.join(missing)}. "
-                f"It has: {', '.join(fieldnames)}"
-            )
-        for row in reader:
-            yield {
-                key.lstrip("#").strip(): (value or "").strip()
-                for key, value in row.items()
-                if key
-            }
+    reader = csv.DictReader(_without_preamble(_open_text(source.path)), delimiter="\t")
+    fieldnames = [name.lstrip("#").strip() for name in (reader.fieldnames or [])]
+    missing = sorted(required - set(fieldnames))
+    if missing:
+        raise ContextError(
+            f"{source.name} ({source.path.name}) has no column(s): {', '.join(missing)}. "
+            f"It has: {', '.join(fieldnames)}"
+        )
+    for row in reader:
+        yield {
+            key.lstrip("#").strip(): (value or "").strip()
+            for key, value in row.items()
+            if key
+        }

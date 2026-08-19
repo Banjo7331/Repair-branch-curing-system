@@ -70,6 +70,17 @@ class TranscriptStore:
     def genes(self) -> list[str]:
         return sorted(self._by_gene)
 
+    def _same_sequence(self, seqid: str, requested: str) -> bool:
+        """Is the caller asking about the sequence this record sits on?
+
+        Not string equality, because the two files a real run reads disagree
+        about the name: NCBI's annotation says ``NC_000017.11`` and UCSC's
+        FASTA says ``chr17``. The annotation's own region records carry the
+        mapping, and where they do not, the ``chr`` prefix is the only
+        difference that can be resolved without evidence.
+        """
+        return self._annotation.aliases.same_sequence(seqid, requested)
+
     def by_accession(self, accession: str) -> TranscriptRecord:
         record = self._annotation.transcripts.get(accession)
         if record is None:
@@ -97,11 +108,49 @@ class TranscriptStore:
                 f"{self._annotation.pin}: {', '.join(sorted(r.accession for r in mane))}"
             )
 
-        longest = max(candidates, key=lambda record: (record.coding_length, record.accession))
-        return longest, (
-            f"longest coding sequence ({longest.coding_length} nt of "
-            f"{len(candidates)} transcripts) — no MANE Select transcript is annotated"
-        )
+        return self._fallback(candidates)
+
+    def _fallback(self, candidates: list[TranscriptRecord]) -> tuple[TranscriptRecord, str]:
+        """What to use when no transcript is tagged MANE Select.
+
+        A synthetic fixture never needs this, and pointing the package at real
+        RefSeq showed why it matters: *SMN1* — the spinal muscular atrophy gene,
+        and the flagship case of the whole modality set — has no MANE Select
+        tag, its curated ``NM_000344.4`` sits on an unplaced scaffold, and the
+        assembled chromosome carries only computed ``XM_`` models. Taking the
+        longest coding sequence, which is all this used to do, returned a
+        *predicted* transcript and said nothing about it.
+
+        So the ladder is explicit and each rung is reported:
+
+        1. A curated transcript over a modelled one. ``NM_``/``NR_`` are read by
+           a human; ``XM_``/``XR_`` are a pipeline's best guess, and a clinical
+           answer resting on one should say so.
+        2. The assembled chromosome over a scaffold — but only *within* the
+           choice above, because for a duplicated locus the curated transcript
+           on a scaffold is still the one the literature is written about.
+        3. Longest coding sequence, to break what is left.
+        """
+        curated = [record for record in candidates if record.is_curated]
+        pool = curated or candidates
+        primary = [
+            record for record in pool if self._annotation.aliases.is_chromosome(record.seqid)
+        ]
+        chosen_pool = primary or pool
+
+        longest = max(chosen_pool, key=lambda record: (record.coding_length, record.accession))
+        reasons = ["no MANE Select transcript is annotated"]
+        if curated:
+            reasons.append(f"curated over {len(candidates) - len(curated)} modelled transcript(s)")
+        else:
+            reasons.append(
+                f"every transcript here is a computed model ({longest.accession} among them), "
+                "so this is a prediction rather than a curated sequence"
+            )
+        if not primary and pool:
+            reasons.append(f"on {longest.seqid}, which is not an assembled chromosome")
+        reasons.append(f"longest coding sequence ({longest.coding_length} nt of {len(pool)})")
+        return longest, "; ".join(reasons)
 
     def locate(self, chromosome: str, position: int) -> Placement:
         """What sits at a genomic coordinate, for a position nobody chose.
@@ -115,7 +164,7 @@ class TranscriptStore:
         """
         best: Placement | None = None
         for record in self._annotation.transcripts.values():
-            if record.seqid != chromosome or not record.cds_blocks:
+            if not self._same_sequence(record.seqid, chromosome) or not record.cds_blocks:
                 continue
             starts = [start for start, _ in record.cds_blocks]
             ends = [end for _, end in record.cds_blocks]
@@ -157,9 +206,11 @@ class TranscriptStore:
         else:
             record, reason = self.preferred_for(gene)
 
-        if record.seqid != chromosome:
+        if not self._same_sequence(record.seqid, chromosome):
             raise AnnotationError(
-                f"{record.accession} is on {record.seqid}, but the variant is on {chromosome}"
+                f"{record.accession} is on {record.seqid}, but the variant is on {chromosome}. "
+                "These are different sequences as far as this annotation is concerned — if they "
+                "are the same chromosome under two conventions, the annotation does not say so"
             )
 
         offset = record.cds_offset(position)

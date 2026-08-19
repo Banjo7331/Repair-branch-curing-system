@@ -1,0 +1,16 @@
+## A slice of ClinVar's variant_summary in the real shape, with rows chosen so
+## that every refusal in context/clinvar.py has something to refuse. The
+## submissions are invented; the columns, the wording of the review statuses and
+## the shape of the HGVS names are the file's own.
+#AlleleID	Type	Name	GeneID	GeneSymbol	ClinicalSignificance	ReviewStatus	Assembly	Chromosome	PositionVCF	ReferenceAlleleVCF	AlternateAlleleVCF
+1	single nucleotide variant	NM_000088.4(COL1A1):c.2461G>A (p.Gly821Ser)	1277	COL1A1	Pathogenic	criteria provided, multiple submitters, no conflicts	GRCh38	17	50190099	C	T
+2	single nucleotide variant	NM_000088.4(COL1A1):c.2470G>A (p.Gly824Ser)	1277	COL1A1	Likely pathogenic	criteria provided, single submitter	GRCh38	17	50190090	C	T
+3	single nucleotide variant	NM_000088.4(COL1A1):c.2479G>A (p.Gly827Ser)	1277	COL1A1	Pathogenic	criteria provided, single submitter	GRCh38	17	50190081	C	T
+4	single nucleotide variant	NM_000088.4(COL1A1):c.1000C>T (p.Arg334Ter)	1277	COL1A1	Pathogenic	reviewed by expert panel	GRCh38	17	50191000	G	A
+5	single nucleotide variant	NM_000088.4(COL1A1):c.99G>A (p.Ala33=)	1277	COL1A1	Pathogenic	criteria provided, single submitter	GRCh38	17	50195000	C	T
+6	single nucleotide variant	NM_000088.4(COL1A1):c.500G>A (p.Gly167Asp)	1277	COL1A1	Conflicting classifications of pathogenicity	criteria provided, conflicting classifications	GRCh38	17	50194000	C	T
+7	single nucleotide variant	NM_000088.4(COL1A1):c.600G>A (p.Gly200Asp)	1277	COL1A1	Pathogenic	no assertion criteria provided	GRCh38	17	50193000	C	T
+8	single nucleotide variant	NM_000088.4(COL1A1):c.2461G>A (p.Gly821Ser)	1277	COL1A1	Pathogenic	criteria provided, multiple submitters, no conflicts	GRCh37	17	50112000	C	T
+9	Deletion	NM_000088.4(COL1A1):c.3000_3010del (p.Gly1000fs)	1277	COL1A1	Pathogenic	criteria provided, multiple submitters, no conflicts	GRCh38	17	50189000	CTTTTTTTTTT	C
+10	single nucleotide variant	NM_006218.4(PIK3CA):c.3140A>G (p.His1047Arg)	5290	PIK3CA	Pathogenic	practice guideline	GRCh38	3	179234297	A	G
+11	single nucleotide variant	NM_006218.4(PIK3CA):c.1633G>A (p.Glu545Lys)	5290	PIK3CA	Pathogenic	reviewed by expert panel	GRCh38	3	179218303	G	A

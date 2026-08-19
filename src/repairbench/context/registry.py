@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from repairbench.context import clingen, curation, expression, gnomad
+from repairbench.context import clingen, clinvar, curation, expression, gnomad
 from repairbench.context.source import ContextError, Provenance, Source
 from repairbench.model import DosageScore, Gene, MissenseDistribution
 
@@ -60,15 +60,19 @@ class GeneContextRegistry:
         constraint: Path | None = None,
         local: Path | None = None,
         expression_matrix: Path | None = None,
+        variant_summary: Path | None = None,
         dosage_version: str = "unversioned",
         constraint_version: str = "unversioned",
         local_version: str = "unversioned",
         expression_version: str = "unversioned",
+        clinvar_version: str = "unversioned",
+        minimum_stars: int = 1,
+        hotspot_window_aa: int = 20,
         genes: set[str] | None = None,
     ) -> GeneContextRegistry:
         """Read whichever sources are supplied.
 
-        All three are optional and none is defaulted to an empty stand-in: a
+        All of them are optional and none is defaulted to an empty stand-in: a
         registry loaded without gnomAD simply has no constraint for any gene,
         which the rules handle, rather than a fabricated one they would act on.
         """
@@ -86,6 +90,28 @@ class GeneContextRegistry:
             source = Source.of(name, path, version)
             reader(source, collected, genes=genes)
             pins[name] = source
+
+        if variant_summary is not None:
+            # Read outside the loop because it is the one source that cannot be
+            # read whole. The other four are gene-per-row tables of a few
+            # hundred thousand lines; ClinVar's summary is millions of
+            # submissions, and a registry loaded without a gene filter would
+            # spend minutes reading them to answer a question about nine.
+            if not genes:
+                raise ContextError(
+                    "loading ClinVar needs the genes to look for: the file is millions of "
+                    "submissions, and reading all of them to build context for a handful "
+                    "would take minutes and look like it was working"
+                )
+            source = Source.of("clinvar", variant_summary, clinvar_version)
+            clinvar.ingest(
+                source,
+                collected,
+                genes=genes,
+                minimum_stars=minimum_stars,
+                hotspot_window_aa=hotspot_window_aa,
+            )
+            pins["clinvar"] = source
 
         if not pins:
             raise ContextError("a registry with no sources cannot supply anything")
@@ -116,12 +142,18 @@ class GeneContextRegistry:
     def gene(self, symbol: str, *, distribution: MissenseDistribution | None = None) -> SourcedGene:
         """Build the gene context the rules read.
 
-        ``distribution`` — where pathogenic variation sits in the gene — is still
-        a parameter rather than an ingested fact. Deriving it means counting
-        pathogenic missense variants per domain across a ClinVar release, which
-        is a real piece of work and belongs to its own source module. Passing it
-        in keeps that gap visible rather than filling it with a default of zero,
-        which the clustering rule would silently read as "no pattern".
+        ``distribution`` — where pathogenic variation sits in the gene — comes
+        from ClinVar when a summary was loaded, and the parameter now overrides
+        it rather than being the only way to supply it. The override stays
+        because a curated count from a disease-specific database is better
+        evidence than a submission tally, and the reference set has to be able
+        to hold a gene still while a rule is being examined.
+
+        What it does *not* do is default to zero when no source supplied one.
+        An empty distribution reads to the clustering rule as "no pattern",
+        which is the correct thing for it to conclude from no data — but the
+        provenance says nothing was counted, so a report cannot present it as a
+        finding.
         """
         provenance = self.provenance_for(symbol)
         facts = provenance.facts
@@ -132,12 +164,15 @@ class GeneContextRegistry:
 
         gene = Gene(
             symbol=symbol,
-            haploinsufficiency=value("haploinsufficiency", DosageScore.NO_EVIDENCE),  # type: ignore[arg-type]
-            triplosensitivity=value("triplosensitivity", DosageScore.NO_EVIDENCE),  # type: ignore[arg-type]
+            # A gene ClinGen has not evaluated gets *not evaluated*, not a
+            # score. The registry already refuses to invent a value; this is
+            # the same refusal spelled where the Gene is built.
+            haploinsufficiency=value("haploinsufficiency", DosageScore.NOT_EVALUATED),  # type: ignore[arg-type]
+            triplosensitivity=value("triplosensitivity", DosageScore.NOT_EVALUATED),  # type: ignore[arg-type]
             loeuf=value("loeuf"),  # type: ignore[arg-type]
             forms_multimer=bool(value("forms_multimer", False)),
             truncating_variants_are_milder=bool(value("truncating_variants_are_milder", False)),
-            distribution=distribution or MissenseDistribution(),
+            distribution=distribution or value("distribution", MissenseDistribution()),  # type: ignore[arg-type]
             curated_mechanism=value("curated_mechanism"),  # type: ignore[arg-type]
             curated_mechanism_source=(
                 facts["curated_mechanism"].citation if "curated_mechanism" in facts else None

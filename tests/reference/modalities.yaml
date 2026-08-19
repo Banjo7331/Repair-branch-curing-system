@@ -9,6 +9,23 @@
 # on their output. A failure here can be in either file, which is the point —
 # M6 is only as good as the mechanism it is handed.
 
+# The transcript structures below are real: exon lengths read from RefSeq's
+# GRCh38 annotation (GRCh38_latest_genomic.gff.gz@b13607bdad3a, annotation
+# release 2024-08), for the transcript this package resolves for each gene.
+# They were uniform inventions until the package was pointed at the real file,
+# and three things came back changed — the record of which is in the notes on
+# the cases themselves rather than summarised here.
+#
+# The LOEUF values are real too, from gnomAD v2.1.1's per-transcript constraint
+# file, read through the Ensembl canonical row. That release rather than v4
+# because it is the one the downloads page links, and its column names differ —
+# which is a fact about the file rather than about the biology, and lives in
+# src/repairbench/context/gnomad.py where it belongs.
+#
+# Keeping the numbers in this file rather than reading the annotation at test
+# time is deliberate: the reference set has to run in CI without a 75 MB
+# download, and a set that only runs where the data is is a set nobody runs.
+
 cases:
   - name: SMN1 loss of function, spinal muscular atrophy
     note: >
@@ -16,14 +33,22 @@ cases:
       mechanism, and a licensed single-dose therapy that delivers a working
       copy. If the module cannot get this one right, nothing downstream is
       trustworthy.
-    variant: {gene: SMN1, consequence: stop_gained, cds_position: 400, zygosity: homozygous}
-    transcript: {accession: NM_000344.4, exon_count: 8, coding_length: 885}
+    variant: {gene: SMN1, consequence: stop_gained, cds_position: 469, hgvs_c: c.469C>T, protein_change: p.Gln157Ter, zygosity: homozygous}
+    transcript:
+      accession: NM_000344.4
+      exon_lengths: [81, 72, 120, 201, 153, 96, 111, 51]
     gene:
-      haploinsufficiency: autosomal_recessive
+      # Not `autosomal_recessive`, which is ClinGen's dosage code 30 — and
+      # ClinGen has no dosage row for SMN1 at all. The duplicated locus makes
+      # that curation hard, and the gene is simply not on the list. SMA being
+      # recessive is carried where it belongs: by the gene-disease validity
+      # curation below, which does exist, and by the patient's zygosity, which
+      # is what actually rules the modalities out.
+      haploinsufficiency: not_evaluated
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen SMA GCEP
-      loeuf: 0.6
-      distribution: {pathogenic_missense_total: 30, pathogenic_missense_in_hotspot: 8, pathogenic_truncating_total: 60}
+      loeuf: 1.929
+      distribution: {pathogenic_missense_total: 18, pathogenic_missense_in_hotspot: 8, pathogenic_truncating_total: 41}
     expect:
       mechanism: loss_of_function
       indicated: [gene_addition]
@@ -38,17 +63,22 @@ cases:
       is why micro-dystrophin exists. And the affected exon is a multiple of
       three, so skipping it leaves a shortened protein that works, which is the
       whole design of exon-skipping oligonucleotides.
-    # Exon lengths are made uniform at 141 nt so that the affected exon is a
-    # multiple of three — what this case tests is the frame rule, not DMD's real
-    # exon structure, and the real structure belongs with the ingest module.
-    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 4200, zygosity: hemizygous}
-    transcript: {accession: NM_004006.3, exon_count: 79, uniform_exon_length: 141}
+    # The exon lengths below are the real ones, read from RefSeq. c.4088del is a
+    # reported frameshift — 2★ in ClinVar — and it sits in exon 30, which spans
+    # c.4072-4233: 162 nucleotides, a multiple of three, so skipping it leaves a
+    # shortened protein in frame. That is the whole design of an exon-skipping
+    # oligonucleotide, and the case now cites a variant somebody had rather than
+    # a round number inside the right exon.
+    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 4088, hgvs_c: c.4088del, protein_change: p.Lys1363fs, zygosity: hemizygous}
+    transcript:
+      accession: NM_004006.3
+      exon_lengths: [31, 62, 93, 78, 93, 173, 119, 182, 129, 189, 182, 151, 120, 102, 108, 180, 176, 124, 88, 242, 181, 146, 213, 114, 156, 171, 183, 135, 150, 162, 111, 174, 156, 171, 180, 129, 171, 123, 138, 153, 183, 195, 173, 148, 176, 148, 150, 186, 102, 109, 233, 118, 212, 155, 190, 173, 157, 121, 269, 147, 79, 61, 62, 75, 202, 86, 158, 167, 112, 137, 39, 66, 66, 159, 244, 124, 93, 32, 12]
     gene:
       haploinsufficiency: sufficient_evidence
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen DMD GCEP
-      loeuf: 0.3
-      distribution: {pathogenic_missense_total: 60, pathogenic_missense_in_hotspot: 10, pathogenic_truncating_total: 900}
+      loeuf: 0.154
+      distribution: {pathogenic_missense_total: 24, pathogenic_missense_in_hotspot: 3, pathogenic_truncating_total: 1806}
     expect:
       mechanism: loss_of_function
       indicated: [truncated_construct, exon_skipping]
@@ -63,16 +93,18 @@ cases:
       without delivering any sequence at all — a route no other
       loss-of-function gene offers, and one that reached a published phase 1
       trial in 2025.
-    variant: {zygosity: heterozygous, gene: UBE3A, consequence: stop_gained, cds_position: 1000}
-    transcript: {accession: NM_130838.4, exon_count: 12, coding_length: 2628}
+    variant: {zygosity: heterozygous, gene: UBE3A, consequence: stop_gained, cds_position: 1207, hgvs_c: c.1207G>T, protein_change: p.Glu403Ter}
+    transcript:
+      accession: NM_130839.5
+      exon_lengths: [20, 42, 299, 1247, 145, 206, 165, 156, 74, 144, 121]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.2
+      loeuf: 0.206
       imprinting: maternally_expressed
       silenced_allele_intact: true
-      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 12, pathogenic_truncating_total: 90}
+      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 5, pathogenic_truncating_total: 159}
     expect:
       mechanism: loss_of_function
       indicated: [silenced_allele_reactivation, gene_addition]
@@ -83,14 +115,16 @@ cases:
       Haploinsufficiency in a gene of six kilobases. Replacement is off the
       table on payload grounds alone, which is why the clinical programme here
       raises output from the intact allele instead of delivering a new copy.
-    variant: {zygosity: heterozygous, gene: SCN1A, consequence: stop_gained, cds_position: 2000}
-    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    variant: {zygosity: heterozygous, gene: SCN1A, consequence: stop_gained, cds_position: 3733, hgvs_c: c.3733C>T, protein_change: p.Arg1245Ter}
+    transcript:
+      accession: NM_001165963.4
+      exon_lengths: [264, 119, 90, 129, 92, 270, 64, 142, 207, 285, 381, 133, 239, 174, 357, 483, 121, 155, 174, 123, 282, 54, 138, 105, 271, 1178]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen epilepsy GCEP
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.15
-      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+      loeuf: 0.071
+      distribution: {pathogenic_missense_total: 994, pathogenic_missense_in_hotspot: 40, pathogenic_truncating_total: 862}
     expect:
       mechanism: loss_of_function
       indicated: [wild_type_upregulation, truncated_construct]
@@ -109,17 +143,19 @@ cases:
       half of their cells. That is not imprinting, but it is the same
       therapeutic opportunity, and it is the route this case actually has —
       writing the reference set is what made that gap visible.
-    variant: {zygosity: heterozygous, gene: MECP2, consequence: stop_gained, cds_position: 763, protein_change: p.Arg255Ter}
-    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    variant: {zygosity: heterozygous, gene: MECP2, consequence: stop_gained, cds_position: 916, hgvs_c: c.916C>T, protein_change: p.Arg306Ter}
+    transcript:
+      accession: NM_001110792.2
+      exon_lengths: [62, 351, 1084]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
       haploinsufficiency: sufficient_evidence
       triplosensitivity: sufficient_evidence
-      loeuf: 0.12
+      loeuf: 0.407
       imprinting: x_inactivated
       silenced_allele_intact: true
-      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+      distribution: {pathogenic_missense_total: 136, pathogenic_missense_in_hotspot: 34, pathogenic_truncating_total: 612}
     expect:
       mechanism: loss_of_function
       indicated: [silenced_allele_reactivation]
@@ -132,14 +168,16 @@ cases:
       material for the defective chains to spoil. Silencing the mutant allele is
       the coherent direction, and gene addition must come back contraindicated
       rather than merely unranked.
-    variant: {zygosity: heterozygous, gene: COL1A1, consequence: missense_variant, cds_position: 2461, protein_change: p.Gly821Ser}
-    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    variant: {zygosity: heterozygous, gene: COL1A1, consequence: missense_variant, cds_position: 2461, hgvs_c: c.2461G>A, protein_change: p.Gly821Ser}
+    transcript:
+      accession: NM_000088.4
+      exon_lengths: [103, 195, 35, 36, 102, 72, 45, 54, 54, 54, 54, 54, 45, 54, 45, 54, 99, 45, 99, 54, 108, 54, 99, 54, 99, 54, 54, 54, 54, 45, 99, 108, 108, 54, 54, 108, 54, 54, 162, 108, 108, 54, 108, 54, 108, 54, 108, 283, 191, 243, 147]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.25
+      loeuf: 0.105
       forms_multimer: true
       truncating_variants_are_milder: true
-      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+      distribution: {pathogenic_missense_total: 446, pathogenic_missense_in_hotspot: 25, pathogenic_truncating_total: 657}
     expect:
       mechanism: dominant_negative
       indicated: [allele_specific_silencing, base_editing, prime_editing]
@@ -154,12 +192,14 @@ cases:
     note: >
       Gain of function. Nothing that supplies more normal product helps, and
       both routes that do so must be ruled out, not just left unranked.
-    variant: {zygosity: heterozygous, gene: PIK3CA, consequence: missense_variant, cds_position: 3140, protein_change: p.His1047Arg}
-    transcript: {accession: NM_006218.4, exon_count: 21, coding_length: 3213}
+    variant: {zygosity: heterozygous, gene: PIK3CA, consequence: missense_variant, cds_position: 3140, hgvs_c: c.3140A>G, protein_change: p.His1047Arg}
+    transcript:
+      accession: NM_006218.4
+      exon_lengths: [352, 210, 251, 246, 86, 106, 153, 135, 125, 82, 165, 104, 172, 107, 122, 79, 171, 118, 152, 271]
     gene:
       haploinsufficiency: no_evidence
-      loeuf: 0.6
-      distribution: {pathogenic_missense_total: 200, pathogenic_missense_in_hotspot: 170, pathogenic_truncating_total: 0}
+      loeuf: 0.117
+      distribution: {pathogenic_missense_total: 76, pathogenic_missense_in_hotspot: 14, pathogenic_truncating_total: 4}
     expect:
       mechanism: gain_of_function
       indicated: [allele_specific_silencing, base_editing, prime_editing]
@@ -187,17 +227,19 @@ cases:
       type; a hemizygous male has no second X. Nothing about the mechanism
       changed — only the patient did, which is exactly the distinction zygosity
       was added to carry.
-    variant: {zygosity: hemizygous, gene: MECP2, consequence: stop_gained, cds_position: 763}
-    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    variant: {zygosity: hemizygous, gene: MECP2, consequence: stop_gained, cds_position: 916, hgvs_c: c.916C>T, protein_change: p.Arg306Ter}
+    transcript:
+      accession: NM_001110792.2
+      exon_lengths: [62, 351, 1084]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
       haploinsufficiency: sufficient_evidence
       triplosensitivity: sufficient_evidence
-      loeuf: 0.12
+      loeuf: 0.407
       imprinting: x_inactivated
       silenced_allele_intact: true
-      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+      distribution: {pathogenic_missense_total: 136, pathogenic_missense_in_hotspot: 34, pathogenic_truncating_total: 612}
     expect:
       mechanism: loss_of_function
       indicated: [base_editing, prime_editing]
@@ -209,14 +251,16 @@ cases:
       answer. Reading it as "no wild-type allele" would rule out real options on
       missing data; reading it as "yes" would offer options that may not exist.
       The verdicts stand and the gap is stated instead.
-    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 2000}
-    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 3733, hgvs_c: c.3733C>T, protein_change: p.Arg1245Ter}
+    transcript:
+      accession: NM_001165963.4
+      exon_lengths: [264, 119, 90, 129, 92, 270, 64, 142, 207, 285, 381, 133, 239, 174, 357, 483, 121, 155, 174, 123, 282, 54, 138, 105, 271, 1178]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen epilepsy GCEP
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.15
-      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+      loeuf: 0.071
+      distribution: {pathogenic_missense_total: 994, pathogenic_missense_in_hotspot: 40, pathogenic_truncating_total: 862}
     expect:
       mechanism: loss_of_function
       indicated: [wild_type_upregulation]

@@ -1,0 +1,130 @@
+# Reference set for the reanalysis half: episodes, not mechanisms.
+#
+# The other two reference sets ask "does the rule file reach the answer the
+# literature reached". This one asks a different question, because reanalysis
+# does not have answers of that kind. It has *episodes*: a release lands, an
+# assessment moves or does not, and the system has to say why and decide who
+# hears about it. What is pinned here is that decision — the causal claim and
+# the queue it routes to — for each shape of episode a laboratory actually meets.
+#
+# The five shapes below are drawn from what reanalysis programmes report: a
+# curation that removes a settled answer, our own rule edit reaching the same
+# outcome by a different route, two releases arriving in the same week where
+# only one mattered, both of them mattering independently, and the commonest one
+# by far — a release that changes nothing at all.
+#
+# The deployment they run against is synthetic and labelled as such. What is
+# real is the shape of each episode and the decision the system is required to
+# make; the release contents are ours, because no laboratory publishes the four
+# files needed to reproduce one of these weeks.
+#
+# The variant is the same throughout, and it is chosen with care: c.158 in the
+# fixture's PLUSG sits between the two NMD boundaries quoted in the literature.
+# Under a 50 nt rule the premature stop triggers decay; under 55 nt it escapes.
+# One variant, one set of evidence, two defensible readings — which is what
+# makes it the right probe for telling "the field learned something" apart from
+# "we changed our minds".
+
+variant:
+  key: PLUSG-c158
+  gene: PLUSG
+  consequence: stop_gained
+  cds_position: 158
+  zygosity: heterozygous
+  distribution:
+    pathogenic_missense_total: 60
+    pathogenic_missense_in_hotspot: 15
+    pathogenic_truncating_total: 40
+
+# The world every episode starts from. Each episode names only what moves.
+baseline:
+  clinvar: "2026-06"
+  population_frequency: "v4.1"
+  gene_curation: "2026-01"
+  panel: "epilepsy-3.2"
+  expression: "gtex-v10"
+  annotation: "r1"
+  rules: "v1"
+
+episodes:
+  - name: A curation removes a settled answer
+    note: >
+      ClinGen refutes dosage sensitivity for the gene. The variant is unchanged,
+      the patient is unchanged, and a mechanism that was settled is no longer.
+      This is the episode reanalysis exists to catch, and the one where the
+      system must be loudest: something planned on the old reading may be in
+      progress.
+    moves: {gene_curation: "2026-04"}
+    expect:
+      kind: mechanism_lost
+      causal_axes: [gene_curation]
+      pattern: sole
+      queue: clinical_signout
+      urgency: high
+      rule_change_caveat: false
+
+  - name: Our own rule edit reaches the same outcome
+    note: >
+      The NMD boundary moves from 50 nt to 55 — a defensible reading of the same
+      literature — and the mechanism becomes unsettled exactly as it did above.
+      Identical outcome, and it must not be reported alike: no new fact about
+      the patient exists, and routing this to a clinician would count our own
+      corrections as discoveries.
+
+      Note the urgency, which is the part worth arguing about. It is *routine*
+      rather than high — lower than the recuration above, for the same outcome.
+      That is deliberate: nothing has been learned about the patient, so nothing
+      is time-critical. What is needed is somebody confirming the new rule is
+      the better reading, and that is a week's work rather than an hour's. This
+      expectation was written as "high" first, and the reference set caught it.
+    moves: {rules: "v2"}
+    expect:
+      kind: mechanism_lost
+      causal_axes: [rules]
+      pattern: sole
+      queue: validation
+      urgency: routine
+      rule_change_caveat: true
+
+  - name: Two releases land, one of them matters
+    note: >
+      The commonest thing that makes naive attribution wrong. A gnomAD refresh
+      and a ClinGen recuration arrive in the same window; the constraint value
+      moved without crossing anything a rule reads. Guessing would blame both,
+      or the wrong one. The counterfactual holds each back in turn and finds
+      that only the curation is necessary.
+    moves: {gene_curation: "2026-04", population_frequency: "v4.2"}
+    expect:
+      kind: mechanism_lost
+      causal_axes: [gene_curation]
+      contributing_axes: [population_frequency]
+      pattern: sole
+      queue: clinical_signout
+      urgency: high
+
+  - name: Two causes, either would have done it
+    note: >
+      The recuration and the rule edit land together, and each alone reproduces
+      the outcome — so neither is necessary and the honest report is that either
+      would have done it. It still reaches the clinic, because a clinical axis
+      is causal, and it still carries the caveat, because ours is too.
+    moves: {gene_curation: "2026-04", rules: "v2"}
+    expect:
+      kind: mechanism_lost
+      causal_axes: [gene_curation, rules]
+      pattern: redundant
+      queue: clinical_signout
+      rule_change_caveat: true
+
+  - name: A release lands and nothing changes
+    note: >
+      The episode that decides whether anyone still reads the output. An
+      annotation release re-issues the gene with identical structure: the axis
+      moves, the digest moves, and no rule reads anything different. Nothing
+      must reach a human, and nothing must be recorded as a finding — a system
+      that reports this is a system a laboratory stops opening.
+    moves: {annotation: "r2"}
+    expect:
+      kind: none
+      queue: none
+      urgency: silent

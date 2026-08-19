@@ -141,9 +141,37 @@ rules:
   # than from any single variant.
   # ------------------------------------------------------------------
 
-  - id: PATHOGENIC_MISSENSE_CLUSTERING
+  - id: TRUNCATING_VARIATION_DEPLETED
     supports: gain_of_function
     strength: strong
+    when:
+      all:
+        - {feature: consequence.is_missense, is: true}
+        - {feature: gene.variants_counted, gte: 50}
+        - {feature: gene.missense_total, gte: 10}
+        - {feature: gene.truncating_fraction, lte: 0.15}
+        # Same gate as ever: a gene where losing the subunit is precisely what
+        # does *not* cause disease looks like this too, and that is a dominant
+        # negative rather than a new activity.
+        - {feature: gene.nulls_are_milder, is: false}
+    because: >
+      Missense variants cause disease in this gene while truncating variants
+      barely appear, and null alleles are not recorded as milder — so losing the
+      product appears tolerated, and the disease comes from the product doing
+      something new rather than from its absence.
+    citation: >
+      Standard mechanism inference; see ClinGen SVI PVS1 gating on gene
+      mechanism. The threshold is a share rather than a zero because this rule
+      used to demand *no* truncating variants at all, and real ClinVar killed
+      it: PIK3CA, the gene it was written for, reports four truncating variants
+      against seventy-six missense. Any database of a hundred submissions holds
+      a few rows that disagree with the rest, and a boolean gives each of them a
+      veto. Measured across the reference set, PIK3CA sits at 5% and the next
+      gene up sits at 33%.
+
+  - id: PATHOGENIC_MISSENSE_CLUSTERING
+    supports: gain_of_function
+    strength: supporting
     when:
       all:
         - {feature: consequence.is_missense, is: true}
@@ -159,34 +187,25 @@ rules:
         - {feature: gene.forms_multimer, is: false}
         - {feature: gene.nulls_are_milder, is: false}
     because: >
-      Pathogenic missense variants concentrate in one domain rather than
-      spreading across the gene, and no dominant-negative explanation is
-      available for that concentration — the product does not multimerise and
-      null alleles are not milder. That pattern is the signature of variants
-      conferring a new activity rather than removing an existing one.
+      Pathogenic missense variants concentrate in one stretch of the protein
+      rather than spreading across the gene, and no dominant-negative
+      explanation is available for that concentration. On its own this argues
+      that the region matters, not that the variant confers a new activity — so
+      it supports a conclusion reached on other evidence rather than reaching
+      one.
     citation: >
-      SCN2A is the worked example — gain-of-function variants cluster in the
-      channel's voltage sensors and pore, and cause a different, earlier
-      phenotype than the truncating variants.
-
-  - id: NO_PATHOGENIC_TRUNCATING_REPORTED
-    supports: gain_of_function
-    strength: moderate
-    when:
-      all:
-        - {feature: consequence.is_missense, is: true}
-        - {feature: gene.missense_total, gte: 10}
-        - {feature: gene.has_pathogenic_truncating, is: false}
-        # Same gate, same reason: "no pathogenic truncating variants" is also
-        # what a dominant-negative gene looks like, because losing the subunit
-        # is precisely what does *not* cause the disease there.
-        - {feature: gene.nulls_are_milder, is: false}
-    because: >
-      Missense variants cause disease in this gene while truncating variants do
-      not, and null alleles are not recorded as milder — so losing the product
-      appears tolerated, and the disease comes from the product doing something
-      new rather than from its absence.
-    citation: Standard mechanism inference; see ClinGen SVI PVS1 gating on gene mechanism
+      Demoted from *strong* to *supporting* by real data, and the demotion is
+      the finding. Measured across ClinVar for the reference-set genes, the most
+      tightly clustered gene is KRT14 — a textbook dominant negative — followed
+      by SMN1 and MECP2, both loss of function. Both gain-of-function genes rank
+      near the bottom: PIK3CA at 18%, SCN2A at 7%. Two reasons, and both are
+      properties of the measurement rather than of the biology. ClinVar files
+      one row per distinct allele, so a hotspot residue seen in a thousand
+      patients counts once while a long tail of private variants counts once
+      each — recurrence, which is what "hotspot" means, is exactly what the file
+      does not carry. And a hotspot is rarely one window: this rule's own worked
+      example names the voltage sensors *and* the pore, four domains hundreds of
+      residues apart, of which the densest single window catches one.
 
   # ------------------------------------------------------------------
   # Splicing. A mechanism of the transcript; the protein-level

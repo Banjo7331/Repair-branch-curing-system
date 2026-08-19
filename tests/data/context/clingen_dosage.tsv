@@ -1,3 +1,11 @@
+#ClinGen Gene Curation Results
+#15 Jan,2026
+#Genomic Locations are reported on GRCh38 (hg38): GCF_000001405.36
+#https://www.ncbi.nlm.nih.gov/projects/dbvar/clingen
+#
+# The five lines above are the shape of the real file, kept because the
+# parser used to read the first of them as the column names. The rows below
+# are ours.
 #Gene Symbol	Gene ID	cytoBand	Genomic Location	Haploinsufficiency Score	Haploinsufficiency Description	Triplosensitivity Score	Triplosensitivity Description	Date Last Evaluated
 COL1A1	-	-	-	3	-	0	-	2026-01-15
 DMD	-	-	-	3	-	0	-	2026-01-15

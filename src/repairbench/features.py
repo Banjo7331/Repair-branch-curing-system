@@ -146,6 +146,11 @@ def build_features(
         "gene.haploinsufficiency": gene.haploinsufficiency.value,
         "gene.haploinsufficiency.supported": gene.haploinsufficiency.supports_haploinsufficiency,
         "gene.haploinsufficiency.refuted": gene.haploinsufficiency.refutes_haploinsufficiency,
+        #: Whether anybody has looked, as distinct from what they found. A rule
+        #: that wants to hedge on an uncurated gene can say so; none does yet,
+        #: and the feature exists so that the choice is available in the rule
+        #: file rather than requiring a code change.
+        "gene.haploinsufficiency.curated": gene.haploinsufficiency.is_curated,
         "gene.triplosensitivity": gene.triplosensitivity.value,
         "gene.loeuf": gene.loeuf,
         "gene.forms_multimer": gene.forms_multimer,
@@ -161,6 +166,17 @@ def build_features(
         "gene.missense_clustering_ratio": round(distribution.clustering_ratio, 3),
         "gene.truncating_total": distribution.pathogenic_truncating_total,
         "gene.has_pathogenic_truncating": distribution.pathogenic_truncating_total > 0,
+        # A share rather than a yes/no. The boolean above is kept because a rule
+        # may legitimately want it, but nothing in mechanism-v1 reads it any
+        # more: four truncating variants among eighty is what PIK3CA actually
+        # looks like in ClinVar, and the boolean calls that "truncation causes
+        # disease here".
+        "gene.truncating_fraction": (
+            None
+            if distribution.truncating_fraction is None
+            else round(distribution.truncating_fraction, 3)
+        ),
+        "gene.variants_counted": distribution.counted,
         # --- what the patient has left
         "variant.zygosity": variant.zygosity.value,
         "variant.has_wild_type_allele": variant.zygosity.leaves_a_wild_type_allele,

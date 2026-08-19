@@ -129,12 +129,23 @@ class Zygosity(StrEnum):
 class DosageScore(StrEnum):
     """ClinGen dosage sensitivity ratings, kept in their own vocabulary.
 
-    Two of these are not points on a scale, and flattening them into one would
-    lose the distinction the resolver most needs: ``refuted`` is a finding,
-    ``no_evidence`` is a gap, and a predicted null variant means something
-    different in each case.
+    Three of these are not points on a scale, and flattening any of them into
+    the others loses a distinction the resolver needs.
+
+    ``UNLIKELY`` is a *finding*: somebody looked and concluded that dosage
+    sensitivity does not explain this gene. ``NO_EVIDENCE`` is a *gap in the
+    evidence*: ClinGen curated the gene and found nothing to support it yet. And
+    ``NOT_EVALUATED`` is a gap in the *curation*: nobody has looked at all.
+
+    The third was added after pointing this package at the real ClinGen list.
+    *KRT14* and *SMN1* are simply not on it — and the default here was
+    ``NO_EVIDENCE``, so both came out carrying a claim ClinGen has never made.
+    A default that silently attributes a finding to a source is the exact
+    failure this project's provenance layer exists to prevent, and it was
+    sitting in the model the whole time.
     """
 
+    NOT_EVALUATED = "not_evaluated"
     NO_EVIDENCE = "no_evidence"
     LITTLE_EVIDENCE = "little_evidence"
     EMERGING_EVIDENCE = "emerging_evidence"
@@ -149,6 +160,17 @@ class DosageScore(StrEnum):
     @property
     def refutes_haploinsufficiency(self) -> bool:
         return self in {DosageScore.UNLIKELY, DosageScore.AUTOSOMAL_RECESSIVE}
+
+    @property
+    def is_curated(self) -> bool:
+        """Did anybody look?
+
+        Every other property here answers "what did they find". This one
+        answers whether the question was asked, and the two are only the same
+        if you assume a curation exists — which for most of the genome it does
+        not: ClinGen has evaluated a few thousand genes, not twenty thousand.
+        """
+        return self is not DosageScore.NOT_EVALUATED
 
 
 class Imprinting(StrEnum):
@@ -205,14 +227,67 @@ class MissenseDistribution:
             return 0.0
         return self.pathogenic_missense_in_hotspot / self.pathogenic_missense_total
 
+    @property
+    def counted(self) -> int:
+        """How many pathogenic variants went into this at all.
+
+        Nothing reads a ratio without first reading this. A ratio computed from
+        six reports and one computed from six hundred are the same number and
+        different evidence, and the rule file has a minimum for exactly that
+        reason.
+        """
+        return self.pathogenic_missense_total + self.pathogenic_truncating_total
+
+    @property
+    def truncating_fraction(self) -> float | None:
+        """What share of pathogenic variation in this gene destroys the product.
+
+        This replaced a boolean — *are there any truncating variants* — which
+        real data killed on its first contact with it. *PIK3CA* is the gene the
+        rule was written for, and ClinVar reports four truncating variants in it
+        against seventy-six missense: enough to make "any" true and nowhere near
+        enough to mean truncation is a mechanism there. A curated database of a
+        hundred submissions will always contain a few rows that disagree with
+        the rest, and a boolean hands each of them a veto.
+
+        ``None`` when nothing was counted, which is not the same as zero. A gene
+        nobody has submitted variants for must not read as a gene where
+        truncation causes no disease — that is half of the gain-of-function
+        argument, offered for free.
+        """
+        if self.counted == 0:
+            return None
+        return self.pathogenic_truncating_total / self.counted
+
+    def __str__(self) -> str:
+        """The three counts and the ratio, in a line a report can print.
+
+        The ratio is spelled out because it is what the clustering rule reads,
+        and a reader checking whether a gain-of-function call was reasonable
+        should not have to do the division to see how near a threshold it fell.
+        An empty distribution says so rather than printing zeroes, which read
+        as a measurement that came back negative.
+        """
+        if self.pathogenic_missense_total == 0 and self.pathogenic_truncating_total == 0:
+            return "nothing counted"
+        return (
+            f"{self.pathogenic_missense_in_hotspot}/{self.pathogenic_missense_total} "
+            f"missense in the densest window ({self.clustering_ratio:.0%}), "
+            f"{self.pathogenic_truncating_total} truncating"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class Gene:
     """Curated and population-derived context for one gene."""
 
     symbol: str
-    haploinsufficiency: DosageScore = DosageScore.NO_EVIDENCE
-    triplosensitivity: DosageScore = DosageScore.NO_EVIDENCE
+    #: What ClinGen says about losing a copy, and about gaining one. The
+    #: default is *not evaluated* rather than *no evidence*: most of the genome
+    #: has never been curated, and defaulting to a score would put a claim in
+    #: ClinGen's mouth for every gene nobody has looked at.
+    haploinsufficiency: DosageScore = DosageScore.NOT_EVALUATED
+    triplosensitivity: DosageScore = DosageScore.NOT_EVALUATED
     #: gnomAD loss-of-function observed/expected upper bound. Low means the
     #: population tolerates loss of this gene poorly.
     loeuf: float | None = None

@@ -12,6 +12,32 @@
 # below. A test of real annotation would need real structures and belongs with
 # the ingest module, not here.
 
+# The transcript structures below are real: exon lengths read from RefSeq's
+# GRCh38 annotation (GRCh38_latest_genomic.gff.gz@b13607bdad3a, annotation
+# release 2024-08), for the transcript this package resolves for each gene.
+# They were uniform inventions until the package was pointed at the real file,
+# and three things came back changed — the record of which is in the notes on
+# the cases themselves rather than summarised here.
+#
+# The LOEUF values are real too, from gnomAD v2.1.1's per-transcript constraint
+# file, read through the Ensembl canonical row. That release rather than v4
+# because it is the one the downloads page links, and its column names differ —
+# which is a fact about the file rather than about the biology, and lives in
+# src/repairbench/context/gnomad.py where it belongs.
+#
+# The distributions are real as well, counted from ClinVar's variant summary at
+# ≥1★ with conflicting classifications excluded, and so are the CDS positions:
+# every case now cites a variant somebody reported, on the transcript it pins,
+# rather than a round number in a plausible exon. That change cost two cases —
+# PIK3CA dropped from probable to possible and SCN2A stopped resolving at all —
+# and both are written up in the notes on the cases themselves.
+#
+# Keeping the numbers in this file rather than reading the sources at test time
+# is deliberate: the reference set has to run in CI without half a gigabyte of
+# downloads, and a set that only runs where the data is is a set nobody runs.
+# tests/test_real_clinvar.py runs the same cases against the file itself, where
+# the file exists, so the copies here cannot drift silently.
+
 cases:
   # ------------------------------------------------------------------
   # Loss of function: the transcript is destroyed and the gene needs both
@@ -23,12 +49,14 @@ cases:
       The textbook haploinsufficiency case. Truncating variants across the gene,
       dosage curation at sufficient evidence, and a phenotype that tracks the
       amount of channel rather than any new activity.
-    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 2000, hgvs_c: c.2000C>A}
-    transcript: {accession: NM_001165963.4, exon_count: 26, coding_length: 6032}
+    variant: {gene: SCN1A, consequence: stop_gained, cds_position: 3733, hgvs_c: c.3733C>T, protein_change: p.Arg1245Ter}
+    transcript:
+      accession: NM_001165963.4
+      exon_lengths: [264, 119, 90, 129, 92, 270, 64, 142, 207, 285, 381, 133, 239, 174, 357, 483, 121, 155, 174, 123, 282, 54, 138, 105, 271, 1178]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.15
-      distribution: {pathogenic_missense_total: 400, pathogenic_missense_in_hotspot: 120, pathogenic_truncating_total: 300}
+      loeuf: 0.071
+      distribution: {pathogenic_missense_total: 994, pathogenic_missense_in_hotspot: 40, pathogenic_truncating_total: 862}
     expect:
       mechanism: loss_of_function
       confidence: probable
@@ -39,14 +67,16 @@ cases:
       Loss of function like any other — but the paternal copy is intact and
       silenced, which is a therapeutic target no other loss-of-function gene
       offers. The mechanism does not change; the feasibility does.
-    variant: {gene: UBE3A, consequence: stop_gained, cds_position: 1000}
-    transcript: {accession: NM_130838.4, exon_count: 12, coding_length: 2628}
+    variant: {gene: UBE3A, consequence: stop_gained, cds_position: 1207, hgvs_c: c.1207G>T, protein_change: p.Glu403Ter}
+    transcript:
+      accession: NM_130839.5
+      exon_lengths: [20, 42, 299, 1247, 145, 206, 165, 156, 74, 144, 121]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.2
+      loeuf: 0.206
       imprinting: maternally_expressed
       silenced_allele_intact: true
-      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 12, pathogenic_truncating_total: 90}
+      distribution: {pathogenic_missense_total: 40, pathogenic_missense_in_hotspot: 5, pathogenic_truncating_total: 159}
     expect:
       mechanism: loss_of_function
       confidence: probable
@@ -58,12 +88,21 @@ cases:
       biology: the coding sequence does not fit in a viral vector, which is why
       micro-dystrophin exists, and the affected exon is not a multiple of three,
       which is why skipping it alone would not restore the frame.
-    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 4000}
-    transcript: {accession: NM_004006.3, exon_count: 79, coding_length: 11060}
+
+      The position is c.7400, inside exon 51 — 233 nucleotides, and the exon the
+      first skipping oligonucleotide was aimed at. It was c.4000 while this file
+      asserted uniform exon lengths, and that landed in real exon 29, which is
+      150 nucleotides and *does* preserve the frame. The case had been asserting
+      the opposite of what its own structure said, and moving to real exon
+      lengths is what exposed it.
+    variant: {gene: DMD, consequence: frameshift_variant, cds_position: 7444, hgvs_c: c.7444del, protein_change: p.Thr2483fs}
+    transcript:
+      accession: NM_004006.3
+      exon_lengths: [31, 62, 93, 78, 93, 173, 119, 182, 129, 189, 182, 151, 120, 102, 108, 180, 176, 124, 88, 242, 181, 146, 213, 114, 156, 171, 183, 135, 150, 162, 111, 174, 156, 171, 180, 129, 171, 123, 138, 153, 183, 195, 173, 148, 176, 148, 150, 186, 102, 109, 233, 118, 212, 155, 190, 173, 157, 121, 269, 147, 79, 61, 62, 75, 202, 86, 158, 167, 112, 137, 39, 66, 66, 159, 244, 124, 93, 32, 12]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.3
-      distribution: {pathogenic_missense_total: 60, pathogenic_missense_in_hotspot: 10, pathogenic_truncating_total: 900}
+      loeuf: 0.154
+      distribution: {pathogenic_missense_total: 24, pathogenic_missense_in_hotspot: 3, pathogenic_truncating_total: 1806}
     expect:
       mechanism: loss_of_function
       fits_viral_payload: false
@@ -74,14 +113,16 @@ cases:
       Half of the pair that makes this module necessary. The transcript is
       degraded, half the normal collagen is made, and the phenotype is the mild
       form. Compare with the next case, in the same gene.
-    variant: {gene: COL1A1, consequence: stop_gained, cds_position: 1000}
-    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    variant: {gene: COL1A1, consequence: stop_gained, cds_position: 3421, hgvs_c: c.3421C>T, protein_change: p.Arg1141Ter}
+    transcript:
+      accession: NM_000088.4
+      exon_lengths: [103, 195, 35, 36, 102, 72, 45, 54, 54, 54, 54, 54, 45, 54, 45, 54, 99, 45, 99, 54, 108, 54, 99, 54, 99, 54, 54, 54, 54, 45, 99, 108, 108, 54, 54, 108, 54, 54, 162, 108, 108, 54, 108, 54, 108, 54, 108, 283, 191, 243, 147]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.25
+      loeuf: 0.105
       forms_multimer: true
       truncating_variants_are_milder: true
-      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+      distribution: {pathogenic_missense_total: 446, pathogenic_missense_in_hotspot: 25, pathogenic_truncating_total: 657}
     expect:
       mechanism: loss_of_function
       gene_addition_coherent: true
@@ -96,14 +137,16 @@ cases:
       is *worse* than having no protein at all — because the mutant chain is
       incorporated into the triple helix and ruins it. Supplying more normal
       collagen does not remove the defective chains.
-    variant: {gene: COL1A1, consequence: missense_variant, cds_position: 2461, protein_change: p.Gly821Ser}
-    transcript: {accession: NM_000088.4, exon_count: 51, coding_length: 4386}
+    variant: {gene: COL1A1, consequence: missense_variant, cds_position: 2461, hgvs_c: c.2461G>A, protein_change: p.Gly821Ser}
+    transcript:
+      accession: NM_000088.4
+      exon_lengths: [103, 195, 35, 36, 102, 72, 45, 54, 54, 54, 54, 54, 45, 54, 45, 54, 99, 45, 99, 54, 108, 54, 99, 54, 99, 54, 54, 54, 54, 45, 99, 108, 108, 54, 54, 108, 54, 54, 162, 108, 108, 54, 108, 54, 108, 54, 108, 283, 191, 243, 147]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.25
+      loeuf: 0.105
       forms_multimer: true
       truncating_variants_are_milder: true
-      distribution: {pathogenic_missense_total: 700, pathogenic_missense_in_hotspot: 600, pathogenic_truncating_total: 200}
+      distribution: {pathogenic_missense_total: 446, pathogenic_missense_in_hotspot: 25, pathogenic_truncating_total: 657}
     expect:
       mechanism: dominant_negative
       confidence: probable
@@ -114,13 +157,19 @@ cases:
     note: >
       Keratin filaments assemble from pairs; a defective subunit disrupts the
       network. Null carriers are mild or unaffected, which is the signature.
-    variant: {gene: KRT14, consequence: missense_variant, cds_position: 373, protein_change: p.Arg125Cys}
-    transcript: {accession: NM_000526.5, exon_count: 8, coding_length: 1425}
+    variant: {gene: KRT14, consequence: missense_variant, cds_position: 373, hgvs_c: c.373C>T, protein_change: p.Arg125Cys}
+    transcript:
+      accession: NM_000526.5
+      exon_lengths: [525, 83, 157, 162, 126, 221, 47, 98]
     gene:
+      # No haploinsufficiency score, and that is now a statement rather than a
+      # default: ClinGen has never evaluated KRT14 for dosage sensitivity. The
+      # case used to inherit `no_evidence`, which reads as "ClinGen looked and
+      # found nothing" — a claim ClinGen never made.
       forms_multimer: true
       truncating_variants_are_milder: true
-      loeuf: 0.9
-      distribution: {pathogenic_missense_total: 120, pathogenic_missense_in_hotspot: 90, pathogenic_truncating_total: 5}
+      loeuf: 0.846
+      distribution: {pathogenic_missense_total: 42, pathogenic_missense_in_hotspot: 22, pathogenic_truncating_total: 21}
     expect:
       mechanism: dominant_negative
       allele_specific_silencing_indicated: true
@@ -131,18 +180,37 @@ cases:
 
   - name: PIK3CA hotspot missense
     note: >
-      Pathogenic variation is almost entirely missense and almost entirely in
-      three positions. Truncating variants are not a disease mechanism here at
-      all, which is what separates this from a dosage gene.
-    variant: {gene: PIK3CA, consequence: missense_variant, cds_position: 3140, protein_change: p.His1047Arg}
-    transcript: {accession: NM_006218.4, exon_count: 21, coding_length: 3213}
+      Pathogenic variation here is missense and almost nothing else. Four
+      truncating submissions against seventy-six missense — 5%, where the next
+      lowest gene in this set is at 33% — is what separates this from a dosage
+      gene, and it is the only clean separation real ClinVar offers.
+
+      Two things about this case changed when the counts stopped being ours.
+
+      The clustering is not what the literature's summary implies. "Almost
+      entirely in three positions" is true of the *patients*; it is not true of
+      the *alleles*, and ClinVar files one row per allele. The three canonical
+      hotspots do surface — weighting by number of submitting laboratories puts
+      residues 1047, 545, 546 and 542 at the top — but counted as rows they are
+      four among eighty-eight, and the densest twenty-residue window holds 18%.
+
+      And the confidence dropped from probable to possible, which is a
+      correction rather than a loss. Probable used to come from two rules firing
+      — clustering and no-truncating — and those two rules read the same
+      dataset. Two views of one distribution are not two pieces of evidence, and
+      scoring them as though they were is how a package talks itself into
+      certainty. One strong rule now fires, and "possible" is what one rule buys.
+    variant: {gene: PIK3CA, consequence: missense_variant, cds_position: 3140, hgvs_c: c.3140A>G, protein_change: p.His1047Arg}
+    transcript:
+      accession: NM_006218.4
+      exon_lengths: [352, 210, 251, 246, 86, 106, 153, 135, 125, 82, 165, 104, 172, 107, 122, 79, 171, 118, 152, 271]
     gene:
       haploinsufficiency: no_evidence
-      loeuf: 0.6
-      distribution: {pathogenic_missense_total: 200, pathogenic_missense_in_hotspot: 170, pathogenic_truncating_total: 0}
+      loeuf: 0.117
+      distribution: {pathogenic_missense_total: 76, pathogenic_missense_in_hotspot: 14, pathogenic_truncating_total: 4}
     expect:
       mechanism: gain_of_function
-      confidence: probable
+      confidence: possible
       gene_addition_coherent: false
       allele_specific_silencing_indicated: true
 
@@ -150,22 +218,40 @@ cases:
   # The cases where the honest answer is a hedge.
   # ------------------------------------------------------------------
 
-  - name: SCN2A missense, both mechanisms present in one gene
+  - name: SCN2A missense, and the answer gene-level evidence cannot give
     note: >
-      Gain-of-function variants cluster in the channel's voltage sensors and
-      cause early epilepsy; truncating variants cause a later, different
-      phenotype. A resolver that reported a single confident mechanism for this
-      gene would be wrong about half the patients, so "possible" is the correct
-      answer and not a weakness.
-    variant: {gene: SCN2A, consequence: missense_variant, cds_position: 4000}
-    transcript: {accession: NM_001040142.2, exon_count: 27, coding_length: 6021}
+      This case used to expect gain of function at "possible", and real ClinVar
+      took it away. Keeping the case and changing the expectation is the point
+      of having a reference set at all.
+
+      The biology has not moved. Gain-of-function variants cluster in the
+      channel's voltage sensors and cause early epilepsy; truncating variants
+      cause a later, different phenotype. The variant here, p.Arg853Gln, is one
+      of the best-reviewed gain-of-function submissions in the gene.
+
+      What moved is what the evidence supports. Every rule that could argue gain
+      of function reads *where pathogenic variation sits in the gene* — and in a
+      gene with two mechanisms, that measurement is the sum of both. ClinVar
+      reports 369 pathogenic missense and 208 truncating: 36% truncating, and
+      the densest twenty-residue window holds 7% of the missense. Read as one
+      distribution, it looks like neither mechanism, because it is both.
+
+      So the resolver says it cannot tell, and that is correct. The evidence it
+      has is about the gene; the question is about the variant. What would
+      answer it is variant-level curation or a functional assay, neither of
+      which is in this package — and a package that produced "gain of function,
+      possible" from this distribution would be producing it from nothing.
+    variant: {gene: SCN2A, consequence: missense_variant, cds_position: 2558, hgvs_c: c.2558G>A, protein_change: p.Arg853Gln}
+    transcript:
+      accession: NM_001040142.2
+      exon_lengths: [267, 119, 90, 129, 92, 273, 64, 142, 207, 288, 345, 133, 239, 174, 357, 480, 121, 155, 174, 123, 282, 54, 138, 105, 271, 1196]
     gene:
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.1
-      distribution: {pathogenic_missense_total: 150, pathogenic_missense_in_hotspot: 105, pathogenic_truncating_total: 80}
+      loeuf: 0.127
+      distribution: {pathogenic_missense_total: 369, pathogenic_missense_in_hotspot: 25, pathogenic_truncating_total: 208}
     expect:
-      mechanism: gain_of_function
-      confidence: possible
+      mechanism: undetermined
+      confidence: none
 
   - name: MECP2 nonsense in the final exon, Rett syndrome
     note: >
@@ -174,14 +260,16 @@ cases:
       escape decay and a protein is made — yet the curated mechanism is loss of
       function. The call follows the curation and reports the escape as a
       conflict, because a reviewer needs both facts.
-    variant: {gene: MECP2, consequence: stop_gained, cds_position: 763, protein_change: p.Arg255Ter}
-    transcript: {accession: NM_004992.4, exon_count: 4, coding_length: 1461, exon_lengths: [90, 200, 171, 1000]}
+    variant: {gene: MECP2, consequence: stop_gained, cds_position: 916, hgvs_c: c.916C>T, protein_change: p.Arg306Ter}
+    transcript:
+      accession: NM_001110792.2
+      exon_lengths: [62, 351, 1084]
     gene:
       curated_mechanism: loss_of_function
       curated_mechanism_source: ClinGen Rett/Angelman-like GCEP
       haploinsufficiency: sufficient_evidence
-      loeuf: 0.12
-      distribution: {pathogenic_missense_total: 90, pathogenic_missense_in_hotspot: 60, pathogenic_truncating_total: 200}
+      loeuf: 0.407
+      distribution: {pathogenic_missense_total: 136, pathogenic_missense_in_hotspot: 34, pathogenic_truncating_total: 612}
     expect:
       mechanism: loss_of_function
       confidence: established

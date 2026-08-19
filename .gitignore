@@ -1,7 +1,17 @@
 __pycache__/
 *.egg-info/
 .pytest_cache/
-.coverage
 .mypy_cache/
 .ruff_cache/
+.coverage
 .venv/
+.DS_Store
+
+# Reference data: RefSeq, UCSC, ClinGen, gnomAD, GTEx, ClinVar, and any
+# supplementary files fetched from publishers. None of it is ours to
+# redistribute, and it runs to a gigabyte and a half.
+refdata/
+
+# Transfer archives from the working session.
+_to_delete/
+*.tar.gz
