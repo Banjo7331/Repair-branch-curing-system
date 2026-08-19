@@ -9,7 +9,7 @@ a docstring. Here it is arranged and asserted.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -565,7 +565,9 @@ def test_an_acknowledged_transition_does_not_resurface(harness):
     usecase.execute("NICU-014")
     catalog.advance(DriftAxis.ANNOTATION, "2")
     first = usecase.execute("NICU-014")
-    cases.ledger.acknowledge(first.events[0].event_id)
+    cases.ledger.acknowledge(
+        first.events[0].event_id, by="A. Reviewer", note="seen", at=datetime.now(UTC)
+    )
 
     catalog.advance(DriftAxis.ANNOTATION, "1")
     usecase.execute("NICU-014")

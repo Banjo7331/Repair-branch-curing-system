@@ -31,6 +31,7 @@ from repairbench.modality import Modality
 from repairbench.model import Confidence, Mechanism, RepairbenchError
 from repairbench.reanalysis.drift import Assessment
 from repairbench.reanalysis.ledger import CaseLedger, DriftEvent, EventStatus, LedgerEntry
+from repairbench.reanalysis.routing import ReviewQueue, Urgency
 from repairbench.reanalysis.world import DriftAxis, Pin, World
 
 
@@ -129,6 +130,16 @@ class JsonCaseRepository:
         self._root = Path(root)
         (self._root / "cases").mkdir(parents=True, exist_ok=True)
 
+    @property
+    def root(self) -> Path:
+        """Where this repository keeps its files.
+
+        Exposed so a report can name the directory it read. A page that says
+        "three cases watched" without saying *which* state directory it looked
+        in is a page nobody can check against a second one.
+        """
+        return self._root
+
     def _path(self, case_id: str) -> Path:
         return self._root / "cases" / f"{case_id}.json"
 
@@ -149,6 +160,7 @@ class JsonCaseRepository:
                 digest=raw["phenotype"]["digest"],
             ),
             last_world=_world_from_json(raw["last_world"]) if raw.get("last_world") else None,
+            last_examined_at=_timestamp(raw.get("last_examined_at")),
         )
         ledger.events = [_event_from_json(entry) for entry in raw.get("events", [])]
         return ledger
@@ -162,6 +174,9 @@ class JsonCaseRepository:
                 "digest": ledger.phenotype.digest,
             },
             "last_world": _world_to_json(ledger.last_world) if ledger.last_world else None,
+            "last_examined_at": (
+                ledger.last_examined_at.isoformat() if ledger.last_examined_at else None
+            ),
             "events": [_event_to_json(event) for event in ledger.events],
         }
         self._path(ledger.case_id).write_text(json.dumps(payload, indent=2, sort_keys=True))
@@ -174,7 +189,26 @@ class JsonCaseRepository:
         return ledger
 
     def case_ids(self) -> list[str]:
-        return sorted(path.stem for path in (self._root / "cases").glob("*.json"))
+        """Every case registered here, and nothing that merely lives beside one.
+
+        The command line writes sidecars into the same directory —
+        ``<case>.variants.json`` holds the alleles as the VCF spelled them —
+        and a plain ``*.json`` glob reads those back as cases named
+        ``NICU-014.variants``. Nothing called this until the dashboard did, so
+        the first thing the dashboard did was crash on a file that is not a
+        ledger. It is filtered by shape rather than by name: a ledger is an
+        object with a ``case_id``, and anything else in the directory is
+        somebody else's business.
+        """
+        found = []
+        for path in sorted((self._root / "cases").glob("*.json")):
+            try:
+                raw = json.loads(path.read_text())
+            except (OSError, json.JSONDecodeError):
+                continue
+            if isinstance(raw, dict) and "case_id" in raw:
+                found.append(str(raw["case_id"]))
+        return sorted(found)
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +227,24 @@ class StoredEvent:
     fingerprint: str
     status: EventStatus
     summary: str
+    #: Who signed it off, what they wrote, and when — see ``CaseLedger``.
+    acknowledged_by: str = ""
+    acknowledged_note: str = ""
+    acknowledged_at: datetime | None = None
+    #: Where the run that raised this filed it, and how loudly. These are read
+    #: back and this is not a contradiction of the paragraph above: a routing
+    #: decision is a record of what the system *did*, which happened and is
+    #: auditable. The attribution is a claim about what *caused* the change, and
+    #: that is the thing a store must not hand back as though it were fresh.
+    #:
+    #: They also have to survive, because a queue nobody can list is a queue
+    #: nobody works. Before the dashboard needed them, every save wrote them out
+    #: as "-" and a case that was loaded and saved twice quietly lost the
+    #: urgency it had been raised at.
+    urgency: Urgency = Urgency.SILENT
+    queue: ReviewQueue = ReviewQueue.NONE
+    kind: str = "unknown"
+    raised_at: datetime | None = None
     superseded_by: str | None = None
 
     @property
@@ -209,8 +261,14 @@ class StoredEvent:
             f"The run that raised it recorded: {self.summary}"
         )
 
-    def acknowledged(self) -> StoredEvent:
-        return replace(self, status=EventStatus.ACKNOWLEDGED)
+    def acknowledged(self, by: str, note: str, at: datetime) -> StoredEvent:
+        return replace(
+            self,
+            status=EventStatus.ACKNOWLEDGED,
+            acknowledged_by=by,
+            acknowledged_note=note,
+            acknowledged_at=at,
+        )
 
     def superseded(self, by_event_id: str) -> StoredEvent:
         return replace(self, status=EventStatus.SUPERSEDED, superseded_by=by_event_id)
@@ -243,6 +301,11 @@ def _event_to_json(event: LedgerEntry) -> dict[str, object]:
             "status": event.status.value,
             "raised_at": event.raised_at.isoformat() if event.raised_at else None,
             "superseded_by": event.superseded_by,
+            "acknowledged_by": event.acknowledged_by,
+            "acknowledged_note": event.acknowledged_note,
+            "acknowledged_at": (
+                event.acknowledged_at.isoformat() if event.acknowledged_at else None
+            ),
         }
 
     if isinstance(event, StoredEvent):
@@ -250,15 +313,23 @@ def _event_to_json(event: LedgerEntry) -> dict[str, object]:
             "event_id": event.event_id,
             "variant_key": event.variant_key,
             "fingerprint": event.fingerprint,
-            "kind": "restored",
+            "kind": event.kind,
+            # The two mechanisms are folded into the summary on the way in and
+            # are not split back out — the sentence a reviewer read is the
+            # record, and re-deriving its parts would be inventing structure.
             "mechanism_before": "-",
             "mechanism_after": "-",
-            "urgency": "-",
-            "queue": "-",
+            "urgency": event.urgency.value,
+            "queue": event.queue.value,
             "reason": event.summary,
             "status": event.status.value,
-            "raised_at": None,
+            "raised_at": event.raised_at.isoformat() if event.raised_at else None,
             "superseded_by": event.superseded_by,
+            "acknowledged_by": event.acknowledged_by,
+            "acknowledged_note": event.acknowledged_note,
+            "acknowledged_at": (
+                event.acknowledged_at.isoformat() if event.acknowledged_at else None
+            ),
         }
 
     raise StoreError(f"cannot serialise a ledger entry of type {type(event).__name__}")
@@ -273,13 +344,55 @@ def _event_from_json(raw: dict[str, object]) -> StoredEvent:
     its footing. What survives is what the surfacing policy consults — the
     fingerprint and the status — plus what a reviewer reads.
     """
+    before, after = raw.get("mechanism_before", "-"), raw.get("mechanism_after", "-")
+    summary = (
+        str(raw["reason"])
+        if before == "-" and after == "-"
+        else f"{before} → {after}: {raw['reason']}"
+    )
     return StoredEvent(
         event_id=str(raw["event_id"]),
         variant_key=str(raw["variant_key"]),
         fingerprint=str(raw["fingerprint"]),
         status=EventStatus(str(raw["status"])),
-        summary=f"{raw['mechanism_before']} → {raw['mechanism_after']}: {raw['reason']}",
+        summary=summary,
+        urgency=_urgency(raw.get("urgency")),
+        queue=_queue(raw.get("queue")),
+        kind=str(raw.get("kind", "unknown")),
+        raised_at=_timestamp(raw.get("raised_at")),
+        acknowledged_by=str(raw.get("acknowledged_by") or ""),
+        acknowledged_note=str(raw.get("acknowledged_note") or ""),
+        acknowledged_at=_timestamp(raw.get("acknowledged_at")),
         superseded_by=raw.get("superseded_by"),  # type: ignore[arg-type]
     )
+
+
+def _urgency(raw: object) -> Urgency:
+    """Tolerate a state directory written before urgency was kept.
+
+    Those files hold ``"-"``. Reading that as *silent* is the safe direction:
+    it under-states rather than over-states, so an old event cannot appear in
+    the clinical queue on the strength of a placeholder.
+    """
+    try:
+        return Urgency(str(raw))
+    except ValueError:
+        return Urgency.SILENT
+
+
+def _queue(raw: object) -> ReviewQueue:
+    try:
+        return ReviewQueue(str(raw))
+    except ValueError:
+        return ReviewQueue.NONE
+
+
+def _timestamp(raw: object) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
 
 

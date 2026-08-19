@@ -121,6 +121,10 @@ class ReanalyseCase:
 
         baseline = ledger.last_world or candidate
         ledger.last_world = candidate
+        # Recorded even when nothing moved — especially then. A run that found
+        # nothing is the commonest correct outcome and the one indistinguishable
+        # from no run at all, and this is the only thing that distinguishes them.
+        ledger.last_examined_at = self._clock.now()
         self._cases.save(ledger)
 
         report = ReanalysisReport(

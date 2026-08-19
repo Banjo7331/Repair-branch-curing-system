@@ -1,0 +1,41 @@
+# Release r2. Byte-for-byte the same structure as r1, re-issued with a new
+# identifier — which is what most annotation releases are for any one gene. The
+# digest differs, so the axis moves; nothing a rule reads differs, so nothing
+# should be reported. That combination is the alert-fatigue case, and it is a
+# release rather than a fabrication: RefSeq re-issues genes whose coordinates
+# have not moved all the time.
+##gff-version 3
+# A synthetic annotation over tests/data/mini.fa.
+#
+# The coordinates are invented and the file says so: what these fixtures test is
+# the parser, the strand handling and the coordinate arithmetic, none of which
+# care whether the numbers correspond to a real locus. Validating against real
+# RefSeq annotation is a separate exercise and needs the real file.
+#
+# PLUSG  three coding exons on the plus strand,  120 + 90 + 300 = 510 nt
+# MINUSG three coding exons on the minus strand, 60 + 90 + 150  = 300 nt
+# ALTG   two transcripts, neither tagged MANE Select
+# DEMOG  two coding exons, 600 + 300 = 900 nt, with a poly-T run inside exon 1
+#        at 3300-3309 — the case where normalisation moves a variant and the
+#        moved position is still inside coding sequence
+17	test	gene	500	2000	.	+	.	ID=gene-PLUSG;gene=PLUSG
+17	test	mRNA	500	2000	.	+	.	ID=rna-NM_000001.1;Parent=gene-PLUSG;gene=PLUSG;transcript_id=NM_000001.1;tag=MANE Select
+17	test	CDS	500	619	.	+	0	ID=cds-1;Parent=rna-NM_000001.1
+17	test	CDS	900	989	.	+	0	ID=cds-2;Parent=rna-NM_000001.1
+17	test	CDS	1500	1799	.	+	0	ID=cds-3;Parent=rna-NM_000001.1
+11	test	gene	100	900	.	-	.	ID=gene-MINUSG;gene=MINUSG
+11	test	mRNA	100	900	.	-	.	ID=rna-NM_000002.2;Parent=gene-MINUSG;gene=MINUSG;transcript_id=NM_000002.2;tag=MANE Select
+11	test	CDS	100	249	.	-	0	ID=cds-4;Parent=rna-NM_000002.2
+11	test	CDS	400	489	.	-	0	ID=cds-5;Parent=rna-NM_000002.2
+11	test	CDS	841	900	.	-	0	ID=cds-6;Parent=rna-NM_000002.2
+17	test	gene	2100	2900	.	+	.	ID=gene-ALTG;gene=ALTG
+17	test	mRNA	2100	2900	.	+	.	ID=rna-NM_000003.1;Parent=gene-ALTG;gene=ALTG;transcript_id=NM_000003.1
+17	test	CDS	2100	2299	.	+	0	ID=cds-7;Parent=rna-NM_000003.1
+17	test	mRNA	2100	2900	.	+	.	ID=rna-NM_000004.1;Parent=gene-ALTG;gene=ALTG;transcript_id=NM_000004.1
+17	test	CDS	2100	2399	.	+	0	ID=cds-8;Parent=rna-NM_000004.1
+17	test	CDS	2500	2599	.	+	0	ID=cds-9;Parent=rna-NM_000004.1
+17	test	mRNA	2100	2900	.	+	.	ID=rna-NR_000005.1;Parent=gene-ALTG;gene=ALTG;transcript_id=NR_000005.1
+17	test	gene	3000	4400	.	+	.	ID=gene-DEMOG;gene=DEMOG
+17	test	mRNA	3000	4400	.	+	.	ID=rna-NM_000006.1;Parent=gene-DEMOG;gene=DEMOG;transcript_id=NM_000006.1;tag=MANE Select
+17	test	CDS	3000	3599	.	+	0	ID=cds-10;Parent=rna-NM_000006.1
+17	test	CDS	4000	4299	.	+	0	ID=cds-11;Parent=rna-NM_000006.1

@@ -7,18 +7,15 @@
 
 gene_curation:
   - {version: "2026-01", path: clingen-2026-01.tsv}
-  - {version: "2026-04", path: clingen-2026-04.tsv}
 
 population_frequency:
   - {version: "v4.1", path: gnomad-v4.1.tsv}
-  - {version: "v4.2", path: gnomad-v4.2.tsv}
 
 expression:
   - {version: "gtex-v10", path: gtex-v10.tsv}
 
 annotation:
   - {version: "r1", path: annotation-r1.gff3}
-  - {version: "r2", path: annotation-r2.gff3}
 
 panel:
   - {version: "epilepsy-3.2", path: panel-epilepsy-3.2.placeholder}
@@ -28,4 +25,3 @@ clinvar:
 
 rules:
   - {version: "v1", path: rules-v1}
-  - {version: "v2", path: rules-v2}

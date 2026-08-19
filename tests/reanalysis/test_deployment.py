@@ -270,7 +270,7 @@ def test_an_acknowledged_transition_stays_acknowledged_across_processes(
     raised = later.execute("NICU-014").events[0]
 
     ledger = cases_again.get("NICU-014")
-    ledger.acknowledge(raised.event_id)
+    ledger.acknowledge(raised.event_id, by="A. Reviewer", note="seen", at=datetime.now(UTC))
     cases_again.save(ledger)
 
     # Back to January's curation and forward again: the identical transition.

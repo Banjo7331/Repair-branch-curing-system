@@ -45,7 +45,7 @@ class LedgerEntry(Protocol):
 
     def superseded(self, by_event_id: str) -> LedgerEntry: ...
 
-    def acknowledged(self) -> LedgerEntry: ...
+    def acknowledged(self, by: str, note: str, at: datetime) -> LedgerEntry: ...
 
 
 class EventStatus(StrEnum):
@@ -66,6 +66,14 @@ class DriftEvent:
     raised_at: datetime | None = None
     status: EventStatus = EventStatus.OPEN
     superseded_by: str | None = None
+    #: Who said they had read this, what they wrote, and when. Recorded rather
+    #: than merely flipping a flag: "somebody dealt with it" is not something a
+    #: laboratory can answer an audit with, and the note is where a reviewer
+    #: says *why* a change needed nothing — which is the part a later reviewer
+    #: needs and the part a boolean throws away.
+    acknowledged_by: str = ""
+    acknowledged_note: str = ""
+    acknowledged_at: datetime | None = None
 
     @property
     def variant_key(self) -> str:
@@ -83,9 +91,21 @@ class DriftEvent:
     def queue(self) -> ReviewQueue:
         return self.decision.queue
 
-    def acknowledged(self) -> DriftEvent:
-        """Mark as read. Its fingerprint will not be raised again."""
-        return _replace(self, status=EventStatus.ACKNOWLEDGED)
+    def acknowledged(self, by: str, note: str, at: datetime) -> DriftEvent:
+        """Mark as read, by somebody, at a time.
+
+        The fingerprint will not be raised again — which is exactly why the
+        person has to be named. This is the one action in the package that makes
+        the system *quieter*, and an anonymous switch that suppresses future
+        alerts is the thing an incident review cannot reconstruct.
+        """
+        return _replace(
+            self,
+            status=EventStatus.ACKNOWLEDGED,
+            acknowledged_by=by,
+            acknowledged_note=note,
+            acknowledged_at=at,
+        )
 
     def superseded(self, by_event_id: str) -> DriftEvent:
         return _replace(self, status=EventStatus.SUPERSEDED, superseded_by=by_event_id)
@@ -106,6 +126,9 @@ def _replace(event: DriftEvent, **changes: object) -> DriftEvent:
         "raised_at": event.raised_at,
         "status": event.status,
         "superseded_by": event.superseded_by,
+        "acknowledged_by": event.acknowledged_by,
+        "acknowledged_note": event.acknowledged_note,
+        "acknowledged_at": event.acknowledged_at,
     }
     fields.update(changes)
     return DriftEvent(**fields)  # type: ignore[arg-type]
@@ -122,6 +145,13 @@ class CaseLedger:
     phenotype: Pin
     events: list[LedgerEntry] = field(default_factory=list)
     last_world: World | None = None
+    #: When a run last *looked* at this case, which is not when it last found
+    #: something. The two were conflated until a dashboard tried to report on
+    #: them, and the conflation is the dangerous direction: a case examined
+    #: nightly for a year with nothing to report has no events, and reading
+    #: that as "never run" cries wolf, while reading "never run" as "quiet"
+    #: hides a scheduler that died. Only this field can tell them apart.
+    last_examined_at: datetime | None = None
 
     @property
     def acknowledged_fingerprints(self) -> frozenset[str]:
@@ -148,12 +178,29 @@ class CaseLedger:
         ]
         self.events.append(event)
 
-    def acknowledge(self, event_id: str) -> bool:
+    def acknowledge(self, event_id: str, *, by: str, note: str, at: datetime) -> bool:
+        """Record that a named person read this event.
+
+        ``by`` is required and must not be blank. An acknowledgement suppresses
+        every future alert carrying the same fingerprint, so it is the one
+        gesture here that removes information from somebody's screen — and an
+        unattributed one is a suppression nobody can be asked about.
+
+        Only an open event can be acknowledged. Acknowledging a superseded one
+        would sign for a transition that has already been overtaken, which is
+        the specific mistake ``record`` supersedes events to prevent.
+        """
+        if not by.strip():
+            raise ValueError(
+                "an acknowledgement needs the name of whoever made it: it suppresses "
+                "every future alert with this fingerprint, and an anonymous suppression "
+                "is one nobody can be asked about later"
+            )
         found = False
         updated = []
         for event in self.events:
-            if event.event_id == event_id:
-                updated.append(event.acknowledged())
+            if event.event_id == event_id and event.status is EventStatus.OPEN:
+                updated.append(event.acknowledged(by.strip(), note.strip(), at))
                 found = True
             else:
                 updated.append(event)
