@@ -327,8 +327,20 @@ def design_pegrnas(
 
     # The patient's genome, and the genome as it should read. Protospacers are
     # found in the first; the template writes the second.
-    patient_sequence = reference[:index] + patient + reference[index + len(patient) :]
-    edited_sequence = reference[:index] + wild_type + reference[index + len(patient) :]
+    #
+    # Both splice out ``len(wild_type)`` bases, because that is what the
+    # *reference* carries at this index — and both used to splice out
+    # ``len(patient)`` instead. For a substitution the two are equal and nothing
+    # showed; for an insertion or a deletion, which is the entire reason this
+    # module exists rather than the base editor, both sequences came out wrong.
+    # An insertion of four bases silently consumed four reference bases, so the
+    # "patient" sequence was the reference unchanged and the "edited" sequence
+    # was the reference with four bases deleted — a template that writes a
+    # deletion nobody asked for. Reproducing a published pegRNA is what showed
+    # it: the primer binding site matched the paper exactly, and the reverse
+    # transcription template encoded a different product.
+    patient_sequence = reference[:index] + patient + reference[index + len(wild_type) :]
+    edited_sequence = reference[:index] + wild_type + reference[index + len(wild_type) :]
 
     candidates: list[PegRna] = []
     for strand in (PLUS, MINUS):
@@ -427,6 +439,7 @@ def _scan_strand(
     length, pam_length = nuclease.protospacer_length, len(nuclease.pam)
     max_distance = int(rules.threshold("nick_to_edit_max_nt", 30))
     homology_min = int(rules.threshold("rtt_homology_min_nt", 5))
+    homology_max = int(rules.threshold("rtt_homology_max_nt", 20))
     rtt_max = int(rules.threshold("rtt_max_nt", 40))
     pbs_lengths = range(
         int(rules.threshold("pbs_min_nt", 8)), int(rules.threshold("pbs_max_nt", 17)) + 1
@@ -450,37 +463,42 @@ def _scan_strand(
         if distance < 1 or distance > max_distance:
             continue
 
-        # The shortest template that carries the edit and its homology arm.
-        rtt_length = distance + wild_type_length + homology_min - 1
-        if rtt_length > rtt_max or nick_index + 1 + rtt_length > len(scan.edited_view):
-            continue
-        template = scan.edited_view[nick_index + 1 : nick_index + 1 + rtt_length]
-        if not is_resolved(template):
-            continue
-        rtt = reverse_complement(template)
+        # Every template that carries the edit, from the minimum homology arm up
+        # to the maximum the rule file allows. Both this and the primer binding
+        # site are scanned, because both are scanned at the bench — emitting one
+        # template length is what kept the published HEXA pegRNA out of this
+        # module's design space entirely.
+        for homology_arm in range(homology_min, homology_max + 1):
+            rtt_length = distance + wild_type_length + homology_arm - 1
+            if rtt_length > rtt_max or nick_index + 1 + rtt_length > len(scan.edited_view):
+                break
+            template = scan.edited_view[nick_index + 1 : nick_index + 1 + rtt_length]
+            if not is_resolved(template):
+                break
+            rtt = reverse_complement(template)
 
-        for pbs_length in pbs_lengths:
-            if nick_index - pbs_length + 1 < 0:
-                continue
-            pbs = reverse_complement(
-                scan.patient_view[nick_index - pbs_length + 1 : nick_index + 1]
-            )
-            span = sorted((scan.to_genomic(start), scan.to_genomic(pam_index - 1)))
-            found.append(
-                PegRna(
-                    spacer=protospacer,
-                    pam=pam,
-                    strand=scan.strand,
-                    chromosome=request.chromosome,
-                    protospacer_span=(span[0], span[1]),
-                    nick_position=scan.to_genomic(nick_index),
-                    nick_to_edit_nt=distance,
-                    pbs=pbs,
-                    rtt=rtt,
-                    homology_arm_nt=homology_min,
-                    pam_disrupted_by_edit=_pam_disrupted(rtt, pam, nuclease),
+            for pbs_length in pbs_lengths:
+                if nick_index - pbs_length + 1 < 0:
+                    continue
+                pbs = reverse_complement(
+                    scan.patient_view[nick_index - pbs_length + 1 : nick_index + 1]
                 )
-            )
+                span = sorted((scan.to_genomic(start), scan.to_genomic(pam_index - 1)))
+                found.append(
+                    PegRna(
+                        spacer=protospacer,
+                        pam=pam,
+                        strand=scan.strand,
+                        chromosome=request.chromosome,
+                        protospacer_span=(span[0], span[1]),
+                        nick_position=scan.to_genomic(nick_index),
+                        nick_to_edit_nt=distance,
+                        pbs=pbs,
+                        rtt=rtt,
+                        homology_arm_nt=homology_arm,
+                        pam_disrupted_by_edit=_pam_disrupted(rtt, pam, nuclease),
+                    )
+                )
 
     return [_reviewed(candidate, request, rules, nuclease, scan) for candidate in found]
 

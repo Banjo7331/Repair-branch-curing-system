@@ -37,6 +37,16 @@ thresholds:
   #: Reverse transcription template: how much homology must follow the edit for
   #: the new 3' flap to anneal, and how long the template may get.
   rtt_homology_min_nt: 5
+  #: …and how much more may be offered. The template used to be emitted at one
+  #: length only — the shortest that carries the edit plus the minimum arm —
+  #: while the primer binding site was scanned across its whole range. That is
+  #: not how the parameter is used: template length is one of the two things
+  #: people vary when optimising a pegRNA, and the published pegRNAs for HEXA
+  #: alone use 14, 21 and 27 nucleotides of template. A design space that emits
+  #: one length cannot express the molecule somebody actually made, which is
+  #: how this was found. Scanning both parameters multiplies the candidate
+  #: count; the module ranks none of them and says so.
+  rtt_homology_max_nt: 20
   rtt_max_nt: 40
   #: How far the edit may sit from the nick before efficiency falls away.
   nick_to_edit_max_nt: 30

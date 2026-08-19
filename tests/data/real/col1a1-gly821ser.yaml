@@ -1,0 +1,39 @@
+# A real variant, at a real coordinate, in the real transcript, with real
+# gene-level facts. Nothing in this file was invented except the two facts
+# nobody publishes as a table.
+#
+# COL1A1 p.(Gly821Ser) — c.2461G>A on the coding strand. The gene is on the
+# minus strand of chromosome 17, so on the plus strand the change is C>T, and
+# that inversion is the first thing this run tests.
+variant:
+  gene: COL1A1
+  consequence: missense_variant
+  protein_change: p.Gly821Ser
+  hgvs_c: c.2461G>A
+  zygosity: heterozygous
+
+genomic:
+  chromosome: chr17
+  position: 50190099
+  reference: C
+  alternate: T
+
+gene:
+  # ClinGen gene curation list, 2026-08 release
+  haploinsufficiency: sufficient_evidence
+  # gnomAD v2.1.1, Ensembl canonical transcript
+  loeuf: 0.105
+  # Not published as a table by anybody; local curation, with citations
+  forms_multimer: true
+  truncating_variants_are_milder: true
+  # ClinVar variant summary, GRCh38, pathogenic and likely pathogenic at >=1 star,
+  # conflicting classifications excluded. Counted rather than estimated — these
+  # read 300/40/120 until the release was actually parsed, and the shape of the
+  # correction is the point: real COL1A1 has *more* truncating variants than
+  # missense, and the missense are spread across the whole triple helix rather
+  # than gathered into one window. The mechanism does not move, because it rests
+  # on the multimer and milder-nulls curation rather than on clustering.
+  distribution:
+    pathogenic_missense_total: 446
+    pathogenic_missense_in_hotspot: 25
+    pathogenic_truncating_total: 657

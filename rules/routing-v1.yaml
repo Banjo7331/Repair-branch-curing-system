@@ -44,7 +44,7 @@ designers:
 
   - modality: exon_skipping
     designer: aso
-    chemistry: steric-PMO
+    chemistry: steric-PMO-25
     target: affected_exon
     because: >
       Skipping needs the spliceosome redirected, not the transcript destroyed,

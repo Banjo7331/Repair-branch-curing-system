@@ -184,11 +184,22 @@ def test_the_extension_is_template_then_primer(genome, rules):
     assert candidate.extension.endswith(candidate.pbs)
 
 
-def test_the_homology_arm_is_exactly_what_the_rule_file_asks_for(genome, rules):
-    minimum = int(rules.threshold("rtt_homology_min_nt", 5))
+def test_the_homology_arm_is_scanned_across_the_range_the_rule_file_allows(genome, rules):
+    """Both design parameters are scanned, not just the primer binding site.
 
+    This asserted a single length until a published pegRNA turned out to use a
+    longer template than the minimum — which meant the molecule somebody made
+    was not expressible in this module's design space at all."""
+    minimum = int(rules.threshold("rtt_homology_min_nt", 5))
+    maximum = int(rules.threshold("rtt_homology_max_nt", 20))
+    arms = {candidate.homology_arm_nt for candidate in outcome(genome, rules).candidates}
+
+    assert arms, "no candidates to inspect"
+    assert min(arms) == minimum
+    assert len(arms) > 1, "the template length is a parameter, not a constant"
+    assert all(minimum <= arm <= maximum for arm in arms)
     for candidate in outcome(genome, rules).candidates:
-        assert candidate.homology_arm_nt == minimum
+        assert len(candidate.rtt) >= candidate.homology_arm_nt
 
 
 # --------------------------------------------------------------------------

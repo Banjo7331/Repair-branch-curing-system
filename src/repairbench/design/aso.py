@@ -260,17 +260,38 @@ def tile(
     rules: FlagRuleset,
     *,
     chemistry: str,
+    strand: str,
     exon: Exon | None = None,
     must_cover: int | None = None,
     model: AccessibilityModel | None = None,
 ) -> AsoOutcome:
     """Every window of one chemistry's length along a target region.
 
-    ``target`` is the genomic sequence of the region, sense strand, beginning at
-    ``start``. Sense strand rather than transcript strand on purpose: the caller
-    knows the gene's orientation, and an ASO for a minus-strand gene is the
-    *forward* sequence of that region — which is the mistake worth making
-    impossible rather than documenting.
+    ``target`` is the **forward genomic sequence** of the region, beginning at
+    ``start`` — what a FASTA hands back, unmodified.
+
+    ``strand`` is the gene's, and it has no default. An antisense
+    oligonucleotide is complementary to the *messenger*, and which genomic
+    strand that makes it depends entirely on the gene's orientation:
+
+    * a **plus-strand** gene has an mRNA equal to the forward sequence, so the
+      oligonucleotide is its reverse complement;
+    * a **minus-strand** gene has an mRNA equal to the reverse complement, so
+      the oligonucleotide *is the forward sequence*.
+
+    This used to reverse-complement unconditionally, and the docstring asserted
+    the right rule while the code applied one of its two halves. Every
+    oligonucleotide this module produced for a minus-strand gene — *DMD*,
+    *COL1A1*, *MECP2*, most of the reference set — had the sequence of the
+    messenger rather than of something that binds it. A molecule identical to
+    its target hybridises with nothing, and no test caught it: the synthetic
+    fixtures have no orientation, and the one real locus had its expected value
+    copied out of this function's own output.
+
+    What caught it was trying to reproduce a drug. Eteplirsen's thirty bases,
+    read off the FDA label, appear verbatim on the forward strand of chromosome
+    X inside *DMD* exon 51 — a gene on the minus strand. The parameter has no
+    default because the defect was precisely a silent assumption.
 
     ``must_cover`` drops every window that does not span one coordinate, and it
     exists for allele-specific silencing. The only thing distinguishing the
@@ -289,6 +310,13 @@ def tile(
         )
     selected = catalogue[chemistry]
     target = target.upper()
+    if strand not in {"+", "-"}:
+        raise DesignError(
+            f"{strand!r} is not a strand. An antisense oligonucleotide is complementary to "
+            "the messenger, so which genomic strand it copies depends on the gene's "
+            "orientation — there is no answer that is right for both."
+        )
+    minus = strand == "-"
 
     if len(target) < selected.length:
         raise DesignError(
@@ -311,7 +339,7 @@ def tile(
         span = (start + offset, start + offset + selected.length - 1)
         if must_cover is not None and not span[0] <= must_cover <= span[1]:
             continue
-        sequence = reverse_complement(window)
+        sequence = window if minus else reverse_complement(window)
         region = exon.region_for(*span) if exon else Region.UNANNOTATED
 
         features = FlatFeatures(

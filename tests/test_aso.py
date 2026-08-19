@@ -56,7 +56,8 @@ def target():
         return fasta.fetch("17", 240, 360)
 
 
-def run(target, rules, chemistry="steric-PMO", **kwargs):
+def run(target, rules, chemistry="steric-PMO-25", **kwargs):
+    kwargs.setdefault("strand", "+")
     return tile("TARG", "17", 240, target, rules, chemistry=chemistry, **kwargs)
 
 
@@ -72,8 +73,8 @@ def test_the_chemistries_are_data_with_an_action(rules):
     catalogue = chemistries(rules)
 
     assert catalogue["gapmer-2MOE"].action is Action.CLEAVES
-    assert catalogue["steric-PMO"].action is Action.BLOCKS
-    assert catalogue["steric-PMO"].length == 25
+    assert catalogue["steric-PMO-25"].action is Action.BLOCKS
+    assert catalogue["steric-PMO-25"].length == 25
 
 
 def test_a_chemistry_without_an_action_is_refused(tmp_path: Path):
@@ -88,13 +89,13 @@ def test_a_chemistry_without_an_action_is_refused(tmp_path: Path):
 
 
 def test_an_unknown_chemistry_lists_what_there_is(target, rules):
-    with pytest.raises(DesignError, match="steric-PMO"):
+    with pytest.raises(DesignError, match="steric-PMO-25"):
         run(target, rules, chemistry="something-else")
 
 
 def test_a_target_shorter_than_the_oligonucleotide_is_refused(rules):
     with pytest.raises(DesignError, match="no window to tile"):
-        tile("TARG", "17", 1, "ACGT", rules, chemistry="steric-PMO")
+        tile("TARG", "17", 1, "ACGT", rules, chemistry="steric-PMO-25", strand="+")
 
 
 # --------------------------------------------------------------------------
@@ -123,7 +124,7 @@ def test_the_span_belongs_to_the_target_not_the_molecule(target, rules):
 
 def test_every_window_of_the_region_is_tiled(target, rules):
     outcome = run(target, rules)
-    expected = len(target) - chemistries(rules)["steric-PMO"].length + 1
+    expected = len(target) - chemistries(rules)["steric-PMO-25"].length + 1
 
     assert outcome.tiled == expected
 
@@ -194,7 +195,7 @@ def test_a_gapmer_at_a_splice_site_is_blocked(target, rules):
 
 
 def test_a_steric_blocker_at_the_same_site_is_not(target, rules):
-    outcome = run(target, rules, chemistry="steric-PMO", exon=EXON)
+    outcome = run(target, rules, chemistry="steric-PMO-25", exon=EXON)
 
     at_splice_sites = [
         candidate
@@ -209,7 +210,7 @@ def test_a_steric_blocker_in_the_middle_of_an_exon_is_cautioned(target, rules):
     """It binds and changes nothing, unless it happens to cover a silencer or an
     enhancer — and this package does not read those, which is why the flag is a
     caution rather than a block."""
-    outcome = run(target, rules, chemistry="steric-PMO", exon=EXON)
+    outcome = run(target, rules, chemistry="steric-PMO-25", exon=EXON)
     interior = [c for c in outcome.candidates if c.region is Region.EXON_INTERIOR]
 
     assert interior
@@ -231,7 +232,7 @@ def test_a_run_of_four_guanines_blocks_a_window(rules):
     """G-quadruplex: the molecule folds on itself instead of on the target, and
     the window next door usually does not have the run."""
     sequence = "AT" * 20 + "CCCC" + "AT" * 20
-    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE")
+    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE", strand="+")
     containing = [c for c in outcome.candidates if "GGGG" in c.sequence]
 
     assert containing
@@ -242,7 +243,7 @@ def test_cpg_dinucleotides_are_counted_and_flagged(rules):
     """Unmethylated CpG in a phosphorothioate backbone is a TLR9 agonist, and
     the fix is usually to slide the window rather than change the chemistry."""
     sequence = "ATCGATCGATCGATCGATCGATCGATCGATCG"
-    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE")
+    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE", strand="+")
 
     assert all(candidate.cpg_count > 1 for candidate in outcome.candidates)
     assert all(
@@ -253,7 +254,7 @@ def test_cpg_dinucleotides_are_counted_and_flagged(rules):
 
 def test_gc_content_outside_the_bounds_is_a_caution(rules):
     sequence = "AT" * 40
-    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE")
+    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE", strand="+")
 
     assert all(candidate.gc_fraction == 0.0 for candidate in outcome.candidates)
     assert all(
@@ -273,7 +274,7 @@ def test_a_window_with_an_unresolved_base_is_dropped_not_designed(rules):
     """An N in the reference is a base nobody knows. An oligonucleotide ordered
     against it is ordered against a guess."""
     sequence = "ACGT" * 5 + "N" + "ACGT" * 5
-    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE")
+    outcome = tile("G", "17", 1, sequence, rules, chemistry="steric-2MOE", strand="+")
 
     assert outcome.tiled > len(outcome.candidates)
     assert all("N" not in candidate.sequence for candidate in outcome.candidates)
@@ -302,7 +303,10 @@ def test_a_model_that_is_attached_is_asked(target, rules):
         def accessibility(self, start: int, end: int) -> float:
             return 0.5
 
-    outcome = tile("TARG", "17", 240, target, rules, chemistry="steric-PMO", model=Flat())
+    outcome = tile(
+        "TARG", "17", 240, target, rules,
+        chemistry="steric-PMO-25", strand="+", model=Flat(),
+    )
 
     assert "equally accessible" in outcome.ranking
 
@@ -335,7 +339,8 @@ def test_the_report_leads_with_how_many_were_tiled(capsys):
                 "--gene", "TARG",
                 "--at", "17:240-360",
                 "--fasta", str(FASTA),
-                "--chemistry", "steric-PMO",
+                "--chemistry", "steric-PMO-25",
+                "--strand", "+",
                 "--exon", "250-350",
                 "--limit", "3",
             ]
@@ -358,7 +363,8 @@ def test_a_span_in_the_wrong_shape_is_refused():
                 "--gene", "TARG",
                 "--at", "17:240",
                 "--fasta", str(FASTA),
-                "--chemistry", "steric-PMO",
+                "--chemistry", "steric-PMO-25",
+                "--strand", "+",
             ]
         )
         == 1

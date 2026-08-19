@@ -27,8 +27,15 @@ thresholds:
   gc_min_fraction: 0.35
   gc_max_fraction: 0.65
   #: Melting temperature against the RNA target, by the Wallace approximation.
+  #: There is a floor and deliberately no ceiling. ``tm_max_c: 75`` sat here for
+  #: months with no rule reading it — a number that looked like a constraint and
+  #: constrained nothing — and writing the ceiling properly would have made it
+  #: worse: Wallace is 2(A+T) + 4(G+C), an approximation valid for short
+  #: oligonucleotides, and applied to a thirty-mer it returns numbers near 90 °C
+  #: that are not melting temperatures at all. A ceiling built on it would have
+  #: flagged eteplirsen, an approved drug, for a property this file cannot
+  #: measure. The length rule below says so instead.
   tm_min_c: 45
-  tm_max_c: 75
   #: A run of this many identical bases is a synthesis and aggregation problem;
   #: for G specifically it is a G-quadruplex risk, which has its own rule.
   homopolymer_run_nt: 4
@@ -62,15 +69,37 @@ chemistries:
       nusinersen does at the ISS-N1 silencer in SMN2 intron 7.
     citation: Nusinersen; Hua et al. 2008, Am J Hum Genet — ISS-N1
 
-  - id: steric-PMO
+  # Three PMO entries rather than one, because length is not a property of this
+  # chemistry and a single number said otherwise. The four approved
+  # exon-skipping morpholinos are 30, 25, 22 and 21 nucleotides — one entry at
+  # 25 could not express the drug that is 30, which is exactly what trying to
+  # reproduce eteplirsen from the real genome found.
+  - id: steric-PMO-30
+    action: blocks
+    length: 30
+    description: >
+      A phosphorodiamidate morpholino: uncharged backbone, no RNase H, poor
+      nuclear uptake without conjugation. Thirty nucleotides is eteplirsen's
+      length, and this package reproduces that molecule base for base from
+      GRCh38 — see tests/test_published_molecules.py.
+    citation: Eteplirsen (EXONDYS 51), FDA label 206488 — 30-mer against DMD exon 51
+
+  - id: steric-PMO-25
     action: blocks
     length: 25
     description: >
-      A phosphorodiamidate morpholino: uncharged backbone, no RNase H, poor
-      nuclear uptake without conjugation. The exon-skipping drugs in Duchenne
-      are this chemistry, which is also why their delivered dose is the
-      controversy rather than their design.
-    citation: Eteplirsen and its successors; Aartsma-Rus & Corey 2020, Nucleic Acid Ther
+      The same chemistry at golodirsen's length. Whether a shorter oligomer
+      skips better is an open question with published evidence on both sides,
+      and nothing here decides it — the lengths are offered, not ranked.
+    citation: Golodirsen (VYONDYS 53); Aartsma-Rus & Corey 2020, Nucleic Acid Ther
+
+  - id: steric-PMO-22
+    action: blocks
+    length: 22
+    description: >
+      Casimersen's length, the shortest of the approved exon-skipping
+      morpholinos apart from viltolarsen's 21.
+    citation: Casimersen (AMONDYS 45); Aartsma-Rus & Corey 2020, Nucleic Acid Ther
 
 rules:
   # ------------------------------------------------------------------
@@ -140,6 +169,19 @@ rules:
       used here overstates its own precision, so this is a signal to compute a
       proper nearest-neighbour value for the survivors rather than a verdict.
     citation: Wallace rule; approximate by construction
+
+  - id: TM_IS_OUTSIDE_WHAT_THIS_APPROXIMATION_COVERS
+    severity: note
+    when: {feature: aso.length_nt, gt: 20}
+    because: >
+      The melting temperature printed for this window comes from the Wallace
+      rule, which is an approximation for short oligonucleotides and is not
+      defined for one this long. Read the number as an ordering hint among
+      windows of the same length and not as a temperature; a nearest-neighbour
+      calculation is what would answer the question.
+    citation: >
+      Wallace et al. 1979 — the rule and its range. Reproducing eteplirsen, a
+      thirty-mer, is what made the overreach visible: it came back at 86 °C.
 
   # ------------------------------------------------------------------
   # Where the window sits, which decides whether it does anything.
